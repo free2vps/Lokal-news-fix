@@ -20,7 +20,7 @@ async function groq(user: string) {
     method: 'POST', signal: AbortSignal.timeout(40000),
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.GROQ_API_KEY}` },
     body: JSON.stringify({
-      model: process.env.GROQ_MODEL || 'llama-3.3-70b-versatile', temperature: 0.3, response_format: { type: 'json_object' },
+      model: process.env.GROQ_MODEL || 'openai/gpt-oss-120b', temperature: 0.3, response_format: { type: 'json_object' },
       messages: [{ role: 'system', content: SYSTEM }, { role: 'user', content: user }],
     }),
   });
@@ -48,7 +48,14 @@ export async function summarize(item: RawItem): Promise<AIResult> {
   for (const p of order) {
     if (p === 'groq' ? !process.env.GROQ_API_KEY : !process.env.GEMINI_API_KEY) continue;
     try {
-      const raw = (p === 'groq' ? await groq(user) : await gemini(user)).replace(/^```json|```$/g, '').trim();
+      const call = () => (p === 'groq' ? groq(user) : gemini(user));
+      let out: string;
+      try { out = await call(); } catch (e) {
+        if (!/ 429/.test((e as Error).message)) throw e;
+        await new Promise((r) => setTimeout(r, 6000)); // batas per-menit: tunggu sebentar, coba sekali lagi
+        out = await call();
+      }
+      const raw = out.replace(/^```json|```$/g, '').trim();
       const j = JSON.parse(raw);
       const summary = String(j.summary || '').trim();
       if (summary.length < 80) throw new Error('Ringkasan terlalu pendek');
