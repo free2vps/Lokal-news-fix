@@ -2,9 +2,14 @@
   "name": "kabar-lokal",
   "version": "1.0.0",
   "private": true,
-  "scripts": { "dev": "next dev", "build": "next build", "start": "next start" },
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start"
+  },
   "dependencies": {
     "@supabase/supabase-js": "^2.47.0",
+    "@vercel/analytics": "^2.0.1",
     "cheerio": "^1.0.0",
     "next": "^15.1.0",
     "react": "^19.0.0",
