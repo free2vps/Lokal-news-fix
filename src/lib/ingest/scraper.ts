@@ -19,6 +19,7 @@ export async function scrapeList(source: Pick<Source, 'url' | 'selectors'>): Pro
     if (u.origin !== base.origin) return;
     if (u.pathname.replace(/\/$/, '') === base.pathname.replace(/\/$/, '')) return; // halaman indeks/pagination
     if (!sel && !/\/(berita|news|post|read|artikel|detail)\//i.test(u.pathname)) return; // heuristik bila tanpa selector
+    if (/\/(semua|all|page|kategori|category|tag|search)(\/|$)/i.test(u.pathname)) return; // halaman daftar, bukan artikel
     u.hash = '';
     out.add(u.toString());
   });

@@ -28,7 +28,13 @@ export async function deleteSource(fd: FormData) {
 
 export async function syncNow() {
   const s = await runSync();
-  back(`Selesai: ${s.inserted} berita baru dari ${s.found} kandidat, ${s.errors.length} error.${s.errors[0] ? ' Contoh: ' + s.errors[0].slice(0, 160) : ''}`);
+  const groups = new Map<string, number>();
+  for (const e of s.errors) {
+    const m = e.replace(/^https?:\/\/\S+?:\s/, '').slice(0, 150);
+    groups.set(m, (groups.get(m) || 0) + 1);
+  }
+  const top = [...groups].sort((a, b) => b[1] - a[1]).slice(0, 4).map(([m, n]) => `${n}x ${m}`).join(' | ');
+  back(`Selesai: ${s.inserted} berita baru dari ${s.found} kandidat, ${s.errors.length} error.${top ? ' Penyebab: ' + top : ''}`);
 }
 
 export async function syncTrending() {

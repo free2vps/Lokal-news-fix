@@ -24,7 +24,7 @@ async function groq(user: string) {
       messages: [{ role: 'system', content: SYSTEM }, { role: 'user', content: user }],
     }),
   });
-  if (!r.ok) throw new Error(`Groq ${r.status}`);
+  if (!r.ok) throw new Error(`Groq ${r.status}: ${(await r.text()).replace(/\s+/g, ' ').slice(0, 140)}`);
   return (await r.json()).choices[0].message.content as string;
 }
 
@@ -37,7 +37,7 @@ async function gemini(user: string) {
       generationConfig: { temperature: 0.3, responseMimeType: 'application/json' },
     }),
   });
-  if (!r.ok) throw new Error(`Gemini ${r.status}`);
+  if (!r.ok) throw new Error(`Gemini ${r.status}: ${(await r.text()).replace(/\s+/g, ' ').slice(0, 140)}`);
   return (await r.json()).candidates[0].content.parts[0].text as string;
 }
 
