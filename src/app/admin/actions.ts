@@ -30,7 +30,7 @@ export async function syncNow() {
   const s = await runSync();
   const groups = new Map<string, number>();
   for (const e of s.errors) {
-    const m = e.replace(/^https?:\/\/\S+?:\s/, '').slice(0, 150);
+    const m = e.replace(/^https?:\/\/\S+?:\s/, '').slice(0, 300);
     groups.set(m, (groups.get(m) || 0) + 1);
   }
   const top = [...groups].sort((a, b) => b[1] - a[1]).slice(0, 4).map(([m, n]) => `${n}x ${m}`).join(' | ');

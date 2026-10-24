@@ -39,9 +39,10 @@ export async function runSync(opts: { sourceId?: number } = {}) {
   const { data: sources } = await q;
   const stats = { sources: 0, found: 0, inserted: 0, errors: [] as string[] };
   let budget = Number(process.env.MAX_NEW_PER_RUN ?? 8);
+  let aiDown = 0; // pemutus: berhenti jika AI gagal beruntun agar kuota tidak terbuang
 
   for (const s of (sources ?? []) as Source[]) {
-    if (budget <= 0) break;
+    if (budget <= 0 || aiDown >= 2) break;
     stats.sources++;
     try {
       const items = await collect(s);
@@ -50,9 +51,15 @@ export async function runSync(opts: { sourceId?: number } = {}) {
       const seen = new Set((existing ?? []).map((e) => e.source_url));
       const fresh = items.filter((i) => !seen.has(i.url)).slice(0, budget);
       for (let i = 0; i < fresh.length; i += 3) {
+        const chunkLen = fresh.slice(i, i + 3).length;
         const rows = (await Promise.all(fresh.slice(i, i + 3).map((c) =>
           build(s, c).catch((e) => { stats.errors.push(`${c.url}: ${e.message}`); return null; })))).filter(Boolean);
-        if (!rows.length) continue;
+        if (!rows.length) {
+          aiDown = stats.errors.slice(-chunkLen).every((e) => e.includes('AI gagal')) ? aiDown + 1 : 0;
+          if (aiDown >= 2) { stats.errors.push('Dihentikan: AI tidak tersedia (cek API key/model/kuota)'); break; }
+          continue;
+        }
+        aiDown = 0;
         const { error } = await db.from('articles').upsert(rows as object[], { onConflict: 'source_url', ignoreDuplicates: true });
         if (error) stats.errors.push(error.message); else { stats.inserted += rows.length; budget -= rows.length; }
       }

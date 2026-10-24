@@ -29,7 +29,7 @@ async function groq(user: string) {
 }
 
 async function gemini(user: string) {
-  const model = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
+  const model = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
   const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${process.env.GEMINI_API_KEY}`, {
     method: 'POST', signal: AbortSignal.timeout(40000), headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -44,7 +44,7 @@ async function gemini(user: string) {
 export async function summarize(item: RawItem): Promise<AIResult> {
   const user = userPrompt(item);
   const order = process.env.AI_PROVIDER === 'gemini' ? ['gemini', 'groq'] : ['groq', 'gemini'];
-  let lastErr: unknown;
+  const errs: string[] = [];
   for (const p of order) {
     if (p === 'groq' ? !process.env.GROQ_API_KEY : !process.env.GEMINI_API_KEY) continue;
     try {
@@ -60,7 +60,7 @@ export async function summarize(item: RawItem): Promise<AIResult> {
         category: CATEGORIES.includes(j.category) ? j.category : 'Umum',
         tags: (Array.isArray(j.tags) ? j.tags : []).map((t: unknown) => String(t).toLowerCase().trim()).filter(Boolean).slice(0, 5),
       };
-    } catch (e) { lastErr = e; }
+    } catch (e) { errs.push(`${p}: ${(e as Error).message}`); }
   }
-  throw new Error(`AI gagal: ${(lastErr as Error)?.message ?? 'tidak ada API key'}`);
+  throw new Error(`AI gagal: ${errs.join(' // ') || 'tidak ada API key yang terisi'}`);
 }
