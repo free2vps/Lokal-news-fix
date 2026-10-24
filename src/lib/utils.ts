@@ -1,10 +1,28 @@
-export const CATEGORIES = ['Pemerintahan', 'Politik', 'Ekonomi', 'Hukum & Kriminal', 'Pendidikan', 'Kesehatan', 'Olahraga', 'Lingkungan', 'Teknologi', 'Sosial & Budaya', 'Umum'];
+export const NEWS_CATEGORIES = ['Info Pemda', 'Peristiwa Daerah', 'Lowongan & CPNS', 'Event & Kebijakan Lokal', 'Politik', 'Ekonomi', 'Hukum & Kriminal', 'Pendidikan', 'Kesehatan', 'Olahraga', 'Lingkungan', 'Teknologi', 'Sosial & Budaya', 'Umum'];
+
+export const FUN_CATEGORIES = ['Selebriti', 'Film & Musik', 'Gaya Hidup', 'Viral & Trending', 'Kuliner & Wisata'];
+export const CATEGORIES = NEWS_CATEGORIES; // menu berita
+export const ALL_CATEGORIES = [...NEWS_CATEGORIES, ...FUN_CATEGORIES];
+export const categoriesFor = (section: string) => (section === 'hiburan' ? FUN_CATEGORIES : NEWS_CATEGORIES);
+
+// Niche lokal berkompetisi rendah: aturan kata kunci menimpa pilihan AI bila berita bersifat lokal.
+const LOCAL_RULES: [string, RegExp][] = [
+  ['Lowongan & CPNS', /\b(lowongan|cpns|pppk|rekrutmen|pendaftaran (cpns|pppk|asn)|seleksi (calon )?(asn|pegawai)|loker)\b/i],
+  ['Event & Kebijakan Lokal', /\b(festival|pekan raya|bazar|musrenbang|sosialisasi|perda|perbup|pergub|peraturan (bupati|daerah|gubernur|wali ?kota)|kebijakan)\b/i],
+  ['Info Pemda', /\b(pemda|pemkab|pemkot|pemprov|bupati|wakil bupati|wali ?kota|gubernur|dprd|apbd|bappeda|sekda|dinas)\b/i],
+  ['Peristiwa Daerah', /\b(kecelakaan|kebakaran|banjir|longsor|gempa|ditemukan tewas|hilang|basarnas|bpbd|polres|polsek)\b/i],
+];
+export function refineCategory(text: string, aiCategory: string, region: string | null) {
+  const hit = LOCAL_RULES.find(([, re]) => re.test(text));
+  if (hit && (region || hit[0] === 'Lowongan & CPNS')) return hit[0];
+  return aiCategory;
+}
 
 export function slugify(s: string) {
   return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/&/g, ' dan ')
     .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
 }
-export const categoryFromSlug = (slug: string) => CATEGORIES.find((c) => slugify(c) === slug);
+export const categoryFromSlug = (slug: string) => ALL_CATEGORIES.find((c) => slugify(c) === slug);
 
 export function formatDate(d: string, withTime = true) {
   return new Date(d).toLocaleString('id-ID', {

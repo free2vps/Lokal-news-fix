@@ -54,6 +54,7 @@ export default async function Admin({ searchParams }: { searchParams: Promise<{ 
         <form action={addSource} className="mt-3 grid gap-3">
           <input name="name" required placeholder="Nama media (tampil sebagai atribusi)" className={input} />
           <select name="type" className={input}><option value="rss">RSS feed</option><option value="scrape">Scraper halaman daftar berita</option></select>
+          <select name="section" className={input}><option value="berita">Bagian: Berita</option><option value="hiburan">Bagian: Hiburan / infotainment</option></select>
           <input name="url" required type="url" placeholder="https://… (URL feed atau halaman daftar berita)" className={input} />
           <textarea name="selectors" rows={2} placeholder={'Opsional (scraper): {"link":"h3 a","article":".entry-content"}'} className={input} />
           <button className="justify-self-start rounded-md bg-accent px-4 py-2 text-sm font-semibold text-[#1b1405]">Simpan sumber</button>
@@ -65,7 +66,7 @@ export default async function Admin({ searchParams }: { searchParams: Promise<{ 
         <ul className="mt-3 divide-y divide-line">
           {sources.map((s) => (
             <li key={s.id} className="flex items-center justify-between gap-3 py-3 text-sm">
-              <div className="min-w-0"><p className="font-medium">{s.name} <span className="text-muted">({s.type})</span></p>
+              <div className="min-w-0"><p className="font-medium">{s.name} <span className="text-muted">({s.type}, {s.section})</span></p>
                 <p className="truncate text-muted">{s.url}</p>
                 <p className="text-xs text-muted">Terakhir dicek: {s.last_fetched_at ? new Date(s.last_fetched_at).toLocaleString('id-ID') : 'belum pernah'}</p></div>
               <form action={deleteSource}><input type="hidden" name="id" value={s.id} /><button className="rounded-md border border-line px-3 py-1.5 text-muted hover:text-ink">Hapus</button></form>

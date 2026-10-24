@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Article } from '@/lib/types';
 import NewsCard from './NewsCard';
 
-export default function LoadMore({ start, category, initialDone = false, pageSize = 12 }: { start: number; category?: string; initialDone?: boolean; pageSize?: number }) {
+export default function LoadMore({ start, category, section, initialDone = false, pageSize = 12 }: { start: number; category?: string; section?: string; initialDone?: boolean; pageSize?: number }) {
   const [items, setItems] = useState<Article[]>([]);
   const [offset, setOffset] = useState(start);
   const [done, setDone] = useState(initialDone);
@@ -16,12 +16,13 @@ export default function LoadMore({ start, category, initialDone = false, pageSiz
     try {
       const p = new URLSearchParams({ offset: String(offset), limit: String(pageSize) });
       if (category) p.set('category', category);
+      if (section) p.set('section', section);
       const data: Article[] = await (await fetch('/api/articles?' + p)).json();
       setItems((x) => [...x, ...data]);
       setOffset((o) => o + data.length);
       if (data.length < pageSize) setDone(true);
     } catch { /* tombol tetap bisa dicoba lagi */ } finally { setBusy(false); }
-  }, [busy, done, offset, category, pageSize]);
+  }, [busy, done, offset, category, section, pageSize]);
 
   useEffect(() => {
     const el = sentinel.current;

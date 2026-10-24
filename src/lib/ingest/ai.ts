@@ -1,73 +1,76 @@
-import { CATEGORIES } from '../utils';
+import { categoriesFor } from '../utils';
+import { REGIONS } from '../../config/regions';
+import { callJSON } from '../ai/llm';
 import type { RawItem } from './scraper';
 
-export type AIResult = { summary: string; keyPoints: string[]; metaTitle: string; metaDescription: string; category: string; tags: string[] };
+export type AIResult = {
+  title: string; summary: string; headings: string[]; keyPoints: string[]; metaTitle: string; metaDescription: string;
+  slugHint: string; category: string; tags: string[]; socialCaption: string;
+};
 
-const SYSTEM = `Kamu editor berita lokal Indonesia. Tugasmu membuat sintesis berita dengan KALIMAT SENDIRI (jangan menyalin kalimat sumber).
-Aturan: gunakan hanya fakta yang ada di teks sumber, jangan menambah fakta, angka, atau kutipan baru; bahasa Indonesia baku yang komunikatif; netral.
+const AREAS = REGIONS.map((r) => r.name).join(', ');
+
+// AGEN 1 (peringkas): menulis ulang isi berita. Dijalankan oleh kumpulan penyedia yang dirotasi.
+const summarizerSystem = (section: string) => `Kamu editor ${section === 'hiburan' ? 'hiburan dan gaya hidup' : 'berita lokal'} Indonesia untuk situs kurasi yang dioptimalkan untuk Google Discover.
+Tulis ulang dengan KALIMAT SENDIRI (jangan menyalin kalimat sumber). Aturan wajib: gunakan hanya fakta dari teks sumber; jangan menambah fakta, angka, nama, atau kutipan; bahasa Indonesia baku yang enak dibaca di ponsel.
+${section === 'hiburan' ? 'Nada boleh lebih hidup, tetapi jangan menyebarkan rumor atau tuduhan tentang orang sungguhan; gunakan "dilaporkan" atau "menurut sumber" bila sumber memakainya.' : 'Nada netral.'}
+Wilayah prioritas: ${AREAS}. Bila berita menyangkut salah satunya, tulis namanya persis seperti ejaan itu di judul.
 Balas HANYA JSON dengan kunci:
-"summary": string 2-3 paragraf dipisah "\\n\\n" (total 90-170 kata),
-"key_points": array 3-4 string (masing-masing maksimal 22 kata),
-"meta_title": string maksimal 60 karakter, menarik dan tidak clickbait,
-"meta_description": string 120-155 karakter,
-"category": salah satu dari: ${CATEGORIES.join(', ')},
-"tags": array 3-5 kata kunci huruf kecil.`;
+"title": judul 55-80 karakter, jujur dan informatif; sebut pelaku/lokasi utama dan inti peristiwa; boleh menyisakan SATU detail yang membuat orang ingin tahu asalkan artikel menjawabnya. Dilarang huruf kapital semua, tanda seru, klaim yang tidak ada di sumber, dan frasa seperti "tidak akan percaya", "bikin geger", "wow".
+"summary": 2-3 paragraf dipisah "\\n\\n" (total 110-180 kata). Paragraf 1 (maksimal 2 kalimat) langsung menjawab apa, siapa, kapan, di mana, mengapa, dan bagaimana; berikutnya konteks atau dampak.
+"headings": array subjudul H2 untuk paragraf ke-2 dan ke-3 (jumlah = paragraf dikurangi 1), maksimal 60 karakter, deskriptif.
+"key_points": array 3-4 poin, masing-masing maksimal 22 kata.
+"social_caption": 1-2 kalimat (maksimal 220 karakter) pembuka postingan media sosial; faktual, memancing rasa ingin tahu secara jujur; tanpa URL dan hashtag.`;
 
-const userPrompt = (i: RawItem) => `Judul sumber: ${i.title}\n\nTeks sumber:\n${i.text.slice(0, 3500)}`;
+// AGEN 2 (SEO): hanya mengekstrak metadata dari hasil ringkasan, bukan dari artikel mentah.
+const seoSystem = (section: string) => `Kamu spesialis SEO untuk situs berita ${section === 'hiburan' ? 'hiburan' : 'lokal'} berbahasa Indonesia. Dari judul dan ringkasan yang diberikan, ekstrak metadata. Jangan menambah fakta baru.
+Balas HANYA JSON dengan kunci:
+"meta_title": maksimal 60 karakter, memuat topik utama (dan nama wilayah bila relevan), tidak clickbait.
+"meta_description": 120-155 karakter.
+"slug_hint": 4-7 kata kunci huruf kecil dipisah spasi tanpa kata sambung.
+"category": salah satu dari: ${categoriesFor(section).join(', ')}.
+"tags": array 3-5 kata kunci huruf kecil (boleh nama wilayah, instansi, tokoh, atau topik).
+Wilayah prioritas (tulis persis): ${AREAS}.`;
 
-async function groq(user: string) {
-  const r = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-    method: 'POST', signal: AbortSignal.timeout(40000),
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.GROQ_API_KEY}` },
-    body: JSON.stringify({
-      model: process.env.GROQ_MODEL || 'openai/gpt-oss-120b', temperature: 0.3, response_format: { type: 'json_object' },
-      messages: [{ role: 'system', content: SYSTEM }, { role: 'user', content: user }],
-    }),
-  });
-  if (!r.ok) throw new Error(`Groq ${r.status}: ${(await r.text()).replace(/\s+/g, ' ').slice(0, 140)}`);
-  return (await r.json()).choices[0].message.content as string;
+const BAIT = /(tidak akan percaya|bikin geger|bikin kaget|\bwow\b|\bsyok\b|!)/i;
+
+/** Pakai judul AI hanya bila aman: bukan umpan klik, panjang wajar, dan kata-katanya berakar pada sumber. */
+export function chooseTitle(aiTitle: string, original: string, text: string) {
+  const t = (aiTitle || '').trim().replace(/\s+/g, ' ');
+  if (t.length < 25 || t.length > 100 || BAIT.test(t) || t === t.toUpperCase()) return original;
+  const words = t.toLowerCase().match(/[a-z0-9]{4,}/g) ?? [];
+  const src = `${original} ${text}`.toLowerCase();
+  const hit = words.filter((w) => src.includes(w)).length;
+  return words.length && hit / words.length >= 0.6 ? t : original;
 }
 
-async function gemini(user: string) {
-  const model = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
-  const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${process.env.GEMINI_API_KEY}`, {
-    method: 'POST', signal: AbortSignal.timeout(40000), headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      systemInstruction: { parts: [{ text: SYSTEM }] }, contents: [{ role: 'user', parts: [{ text: user }] }],
-      generationConfig: { temperature: 0.3, responseMimeType: 'application/json' },
-    }),
-  });
-  if (!r.ok) throw new Error(`Gemini ${r.status}: ${(await r.text()).replace(/\s+/g, ' ').slice(0, 140)}`);
-  return (await r.json()).candidates[0].content.parts[0].text as string;
-}
+const arr = (x: unknown, n: number) => (Array.isArray(x) ? x : []).map((v) => String(v).trim()).filter(Boolean).slice(0, n);
 
-export async function summarize(item: RawItem): Promise<AIResult> {
-  const user = userPrompt(item);
-  const order = process.env.AI_PROVIDER === 'gemini' ? ['gemini', 'groq'] : ['groq', 'gemini'];
-  const errs: string[] = [];
-  for (const p of order) {
-    if (p === 'groq' ? !process.env.GROQ_API_KEY : !process.env.GEMINI_API_KEY) continue;
-    try {
-      const call = () => (p === 'groq' ? groq(user) : gemini(user));
-      let out: string;
-      try { out = await call(); } catch (e) {
-        if (!/ 429/.test((e as Error).message)) throw e;
-        await new Promise((r) => setTimeout(r, 6000)); // batas per-menit: tunggu sebentar, coba sekali lagi
-        out = await call();
-      }
-      const raw = out.replace(/^```json|```$/g, '').trim();
-      const j = JSON.parse(raw);
-      const summary = String(j.summary || '').trim();
-      if (summary.length < 80) throw new Error('Ringkasan terlalu pendek');
-      return {
-        summary,
-        keyPoints: (Array.isArray(j.key_points) ? j.key_points : []).map(String).slice(0, 4),
-        metaTitle: String(j.meta_title || item.title).slice(0, 70),
-        metaDescription: String(j.meta_description || summary).replace(/\s+/g, ' ').slice(0, 160),
-        category: CATEGORIES.includes(j.category) ? j.category : 'Umum',
-        tags: (Array.isArray(j.tags) ? j.tags : []).map((t: unknown) => String(t).toLowerCase().trim()).filter(Boolean).slice(0, 5),
-      };
-    } catch (e) { errs.push(`${p}: ${(e as Error).message}`); }
-  }
-  throw new Error(`AI gagal: ${errs.join(' // ') || 'tidak ada API key yang terisi'}`);
+export async function summarize(item: RawItem, source = '-', section = 'berita'): Promise<AIResult> {
+  let s;
+  try {
+    s = (await callJSON('summary', summarizerSystem(section), `Sumber: ${source}\nJudul sumber: ${item.title}\n\nTeks sumber:\n${item.text.slice(0, 3500)}`)).data;
+  } catch (e) { throw new Error(`AI gagal: ${(e as Error).message}`); }
+  const summary = String(s.summary || '').trim();
+  if (summary.length < 80) throw new Error('AI gagal: ringkasan terlalu pendek');
+  const title = chooseTitle(String(s.title || ''), item.title, item.text);
+
+  let seo: any = {};
+  try { // kegagalan agen SEO tidak membatalkan artikel; dipakai metadata cadangan
+    seo = (await callJSON('seo', seoSystem(section), `Judul: ${title}\n\nRingkasan:\n${summary}`)).data;
+  } catch { /* fallback di bawah */ }
+
+  const cats = categoriesFor(section);
+  return {
+    title,
+    summary,
+    headings: arr(s.headings, 2).map((h) => h.slice(0, 80)),
+    keyPoints: arr(s.key_points, 4),
+    metaTitle: String(seo.meta_title || title).slice(0, 70),
+    metaDescription: String(seo.meta_description || summary).replace(/\s+/g, ' ').slice(0, 160),
+    slugHint: String(seo.slug_hint || '').slice(0, 80),
+    category: cats.includes(seo.category) ? seo.category : section === 'hiburan' ? 'Viral & Trending' : 'Umum',
+    tags: arr(seo.tags, 5).map((t) => t.toLowerCase()),
+    socialCaption: String(s.social_caption || '').replace(/\s+/g, ' ').slice(0, 240),
+  };
 }

@@ -11,11 +11,12 @@ export async function addSource(fd: FormData) {
   const url = String(fd.get('url') || '').trim();
   const name = String(fd.get('name') || '').trim();
   const type = fd.get('type') === 'scrape' ? 'scrape' : 'rss';
+  const section = fd.get('section') === 'hiburan' ? 'hiburan' : 'berita';
   let selectors = {};
   try { const raw = String(fd.get('selectors') || '').trim(); if (raw) selectors = JSON.parse(raw); } catch { return back('Selectors bukan JSON yang valid'); }
   try { new URL(url); } catch { return back('URL tidak valid'); }
   if (!name) return back('Nama sumber wajib diisi');
-  const { error } = await supabaseAdmin().from('sources').insert({ name, type, url, selectors });
+  const { error } = await supabaseAdmin().from('sources').insert({ name, type, url, selectors, section });
   revalidatePath('/admin');
   back(error ? `Gagal: ${error.message}` : 'Sumber ditambahkan');
 }

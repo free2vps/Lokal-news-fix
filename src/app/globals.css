@@ -2,8 +2,8 @@
 @tailwind components;
 @tailwind utilities;
 
-:root { --bg: 243 245 244; --surface: 255 255 255; --ink: 20 33 43; --muted: 91 107 118; --line: 221 227 225; --brand: 14 94 99; --accent: 224 162 27; }
-.dark { --bg: 13 21 25; --surface: 19 30 36; --ink: 232 238 240; --muted: 143 161 171; --line: 35 50 58; --brand: 79 179 184; --accent: 232 177 58; }
+:root { --bg: 243 245 244; --surface: 255 255 255; --ink: 20 33 43; --muted: 91 107 118; --line: 221 227 225; --brand: 14 94 99; --accent: 224 162 27; --pop: 214 51 98; }
+.dark { --bg: 13 21 25; --surface: 19 30 36; --ink: 232 238 240; --muted: 143 161 171; --line: 35 50 58; --brand: 79 179 184; --accent: 232 177 58; --pop: 255 107 140; }
 
 body { @apply bg-bg font-sans text-ink antialiased; }
 :focus-visible { outline: 2px solid rgb(var(--brand)); outline-offset: 2px; }
@@ -16,3 +16,9 @@ body { @apply bg-bg font-sans text-ink antialiased; }
 .legal ul { @apply mb-3 list-disc space-y-1 pl-6; }
 .legal a { @apply text-brand underline; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; scroll-behavior: auto !important; } }
+
+/* Teks berjalan (ticker trending) */
+.marquee { display: flex; width: max-content; animation: marquee 70s linear infinite; }
+.marquee-wrap:hover .marquee, .marquee-wrap:focus-within .marquee { animation-play-state: paused; }
+@keyframes marquee { to { transform: translateX(-50%); } }
+@media (prefers-reduced-motion: reduce) { .marquee { animation: none; } .marquee-wrap { overflow-x: auto; } }

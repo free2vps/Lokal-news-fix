@@ -18,6 +18,8 @@ export const metadata: Metadata = {
   openGraph: { type: 'website', locale: 'id_ID', siteName: SITE.name, url: SITE.url },
   twitter: { card: 'summary_large_image' },
   alternates: { canonical: '/' },
+  // Syarat Google Discover: izinkan pratinjau gambar besar
+  robots: { index: true, follow: true, 'max-image-preview': 'large', 'max-snippet': -1, 'max-video-preview': -1 },
 };
 export const viewport: Viewport = { themeColor: '#0E5E63' };
 
