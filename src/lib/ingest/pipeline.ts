@@ -11,8 +11,12 @@ import { summarize, chooseTitle } from './ai';
 
 type Candidate = { url: string; raw?: RawItem };
 
+// Lewati berita yang terlalu lama (mencegah feed lama ikut diproses sebagai "berita baru")
+const maxAgeMs = Number(process.env.MAX_AGE_DAYS ?? 60) * 86400000;
+const isFresh = (raw?: RawItem) => !raw?.publishedAt || isNaN(+new Date(raw.publishedAt)) || Date.now() - +new Date(raw.publishedAt) <= maxAgeMs;
+
 async function collect(s: Source): Promise<Candidate[]> {
-  if (s.type === 'rss') return (await fetchRss(s)).map((raw) => ({ url: raw.url, raw }));
+  if (s.type === 'rss') return (await fetchRss(s)).filter(isFresh).map((raw) => ({ url: raw.url, raw }));
   return (await scrapeList(s)).map((url) => ({ url }));
 }
 
@@ -21,6 +25,7 @@ async function build(s: Source, c: Candidate) {
   const page = await scrapeArticle(c.url, s.selectors).catch(() => null); // og:image halaman biasanya beresolusi lebih besar daripada RSS
   if (page) raw = raw ? { ...raw, text: raw.text.length >= page.text.length ? raw.text : page.text, publishedAt: raw.publishedAt || page.publishedAt } : page;
   if (!raw || raw.text.length < 80) throw new Error('teks sumber terlalu pendek');
+  if (!isFresh(raw)) throw new Error('berita terlalu lama (melewati MAX_AGE_DAYS)');
   const [ai, img] = await Promise.all([summarize(raw, s.name, s.section), bestImage([page?.image, raw.image])]); // hanya ringkasan yang disimpan, bukan teks asli
   const full = `${raw.title}\n${raw.text}`;
   const region = detectRegion(full);
