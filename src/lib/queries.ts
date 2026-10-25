@@ -45,3 +45,25 @@ export async function getTrending(): Promise<Trend[]> {
     .or(`expires_at.is.null,expires_at.gt.${new Date().toISOString()}`).order('rank');
   return (data ?? []) as Trend[];
 }
+
+/** Halaman feed campuran: 6 berita + 4 hiburan per halaman (komposisi 60/40), diselang-seling. */
+export async function getMixedPage(page: number, skip = { news: 0, fun: 0 }) {
+  const [n, f] = await Promise.all([
+    getLatest({ limit: 6, offset: skip.news + page * 6, section: 'berita' }),
+    getLatest({ limit: 4, offset: skip.fun + page * 4, section: 'hiburan' }),
+  ]);
+  const out: Article[] = [];
+  let i = 0, j = 0;
+  for (const c of 'NNHNHNNHNH') {
+    const a = c === 'N' ? (n[i] ? n[i++] : f[j++]) : (f[j] ? f[j++] : n[i++]);
+    if (a) out.push(a);
+  }
+  while (i < n.length) out.push(n[i++]);
+  while (j < f.length) out.push(f[j++]);
+  return out;
+}
+
+export async function getActiveRegions() {
+  const { data } = await supabase().from('articles').select('region').not('region', 'is', null).order('published_at', { ascending: false }).limit(300);
+  return [...new Set((data ?? []).map((r: { region: string }) => r.region))];
+}

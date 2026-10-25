@@ -18,12 +18,13 @@ export default async function Header() {
             <span className="font-medium">{today}</span><span className="hidden sm:inline">Berita lokal, hiburan, dan video pilihan</span>
           </div>
         </div>
-        <div className="mx-auto flex max-w-6xl items-center gap-3 px-4 py-4">
+        <div className="mx-auto flex max-w-6xl items-center gap-3 px-4 py-3">
           <Link href="/" className="flex items-center gap-2.5 font-serif text-3xl font-bold tracking-tight text-brand">
             <span className="grid h-10 w-10 place-items-center rounded-lg bg-brand text-2xl text-bg" aria-hidden>{SITE.name[0]}</span>
             <span className="hidden sm:inline">{SITE.name}</span>
           </Link>
-          <div className="ml-auto flex w-full max-w-xs items-center gap-2 sm:max-w-md"><SearchForm /><ThemeToggle /></div>
+          <div className="mx-auto w-full max-w-2xl"><SearchForm /></div>
+          <ThemeToggle />
         </div>
       </header>
       <div className="sticky top-0 z-30 border-b border-line bg-bg/95 backdrop-blur">

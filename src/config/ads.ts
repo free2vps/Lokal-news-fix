@@ -1,5 +1,5 @@
 // Isi kode iklan dari jaringan Anda. Slot dengan kind "none" tidak tampil di production.
-export type AdKey = 'header' | 'inArticle' | 'sidebar' | 'sticky';
+export type AdKey = 'header' | 'inArticle' | 'sidebar' | 'sidebar2' | 'sticky';
 export type AdConfig = { minHeight: number } & (
   | { kind: 'none' }
   | { kind: 'adsense'; slotId: string }                              // butuh NEXT_PUBLIC_ADSENSE_CLIENT
@@ -10,6 +10,7 @@ export const ADS: Record<AdKey, AdConfig> = {
   header:    { kind: 'none', minHeight: 90 },
   inArticle: { kind: 'none', minHeight: 250 },
   sidebar:   { kind: 'none', minHeight: 250 },
+  sidebar2:  { kind: 'none', minHeight: 600 }, // half-page 300x600 di bawah daftar berita
   sticky:    { kind: 'none', minHeight: 60 },
 };
 

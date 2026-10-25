@@ -1,8 +1,8 @@
 import type { Trend } from '@/lib/types';
-import { topicsOf, trendHref } from './TrendingNow';
+import { googleTopics, trendHref } from './TrendingNow';
 
 export default function TrendTicker({ items }: { items: Trend[] }) {
-  const topics = topicsOf(items).slice(0, 14);
+  const topics = googleTopics(items).slice(0, 14);
   if (!topics.length) return null;
   const row = (suffix: string) => topics.map((t) => (
     <a key={suffix + t.id} href={trendHref(t)} target="_blank" rel="noopener nofollow" className="mx-4 whitespace-nowrap hover:text-brand hover:underline">{t.title}</a>
