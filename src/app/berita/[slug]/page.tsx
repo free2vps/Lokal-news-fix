@@ -95,7 +95,7 @@ export default async function Detail({ params }: P) {
               </div>
             ))}
           </div>
-          <p className="mt-3 text-xs text-muted">{a.slug.includes('-hub-') ? 'Pratinjau otomatis berbasis teks sumber, tanpa AI.' : 'Ringkasan otomatis.'} Sumber: {a.source_name}. Rujuk artikel asli untuk informasi lengkap dan akurat.</p>
+          <p className="mt-3 text-xs text-muted">{a.slug.includes('-hub-') ? 'Ringkasan otomatis dari teks sumber; dapat diproses secara deterministik atau dengan bantuan AI.' : 'Ringkasan otomatis.'} Sumber: {a.source_name}. Rujuk artikel asli untuk informasi lengkap dan akurat.</p>
         </section>
 
         <div className="my-6"><AdSlot slot="inArticle" /></div>

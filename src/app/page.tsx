@@ -27,7 +27,7 @@ export default async function Home() {
     getLatest({ limit: hubMode?6:9, section: 'berita' }), getLatest({ limit: hubMode?4:2, section: 'hiburan' }),
     getTrending(), getActiveRegions(), getLatest({ limit: 1, category: 'Lowongan & CPNS' }),
   ]);
-  const pool: Article[] = [...news, ...fun].sort((a, b) => +new Date(b.published_at) - +new Date(a.published_at));
+  const pool: Article[] = [...news, ...fun].sort((a, b) => hubMode ? Number(!a.region)-Number(!b.region)||(+new Date(b.published_at)-+new Date(a.published_at)) : +new Date(b.published_at)-+new Date(a.published_at));
   if (!pool.length) return <p className="py-20 text-center text-muted">Belum ada berita. Tambahkan sumber di /admin lalu klik “Sync sekarang”.</p>;
 
   const good = (a: Article) => !!a.image_url && (!a.image_width || a.image_width >= 600); // hindari gambar buram
