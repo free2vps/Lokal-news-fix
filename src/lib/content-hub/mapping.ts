@@ -46,11 +46,11 @@ export function mapHubArticle(value: unknown, now = Date.now()) {
     ai_summary:summary,category:category(text(item.editorial_category),section,full,region),section,region,tags:keywords(item.keywords),
     image_url:safeUrl(item.image_url),image_credit:text(item.image_credit)||null,published_at:new Date(date).toISOString(),
     ...sourceSeo(title,summary),
-    ...(item.summary_method==='mistral_ntb'&&object(item.enrichment)?.provider==='mistral'?{
+    ...(((item.seo_method==='mistral_ntb'&&object(item.enrichment)?.provider==='mistral')||(item.seo_method==='openrouter_ntb'&&object(item.enrichment)?.provider==='openrouter')||(item.summary_method==='mistral_ntb'&&object(item.enrichment)?.provider==='mistral'))?{
       meta_title:text(item.meta_title).slice(0,70)||sourceSeo(title,summary).meta_title,
       meta_description:text(item.meta_description).slice(0,160)||sourceSeo(title,summary).meta_description,
-      key_points:array(item.key_points).filter((v):v is string=>typeof v==='string').slice(0,4).map(v=>v.slice(0,220)),
-      section_headings:array(item.section_headings).filter((v):v is string=>typeof v==='string').slice(0,2).map(v=>v.slice(0,80)),
+      key_points:Array.isArray(item.key_points)?array(item.key_points).filter((v):v is string=>typeof v==='string').slice(0,4).map(v=>v.slice(0,220)):sourceSeo(title,summary).key_points,
+      section_headings:Array.isArray(item.section_headings)?array(item.section_headings).filter((v):v is string=>typeof v==='string').slice(0,2).map(v=>v.slice(0,80)):sourceSeo(title,summary).section_headings,
       tags:array(item.tags).filter((v):v is string=>typeof v==='string').slice(0,5).map(v=>v.slice(0,80)),
     }:{ }),
   };
