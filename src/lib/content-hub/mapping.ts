@@ -1,3 +1,4 @@
+import { sourceSeo } from './seo';
 import { createHash } from 'crypto';
 import { detectRegion } from '@/config/regions';
 import { slugify, refineCategory, NEWS_CATEGORIES, FUN_CATEGORIES } from '../utils';
@@ -44,7 +45,7 @@ export function mapHubArticle(value: unknown, now = Date.now()) {
     // Legacy database column name, not a claim of AI authorship.
     ai_summary:summary,category:category(text(item.editorial_category),section,full,region),section,region,tags:keywords(item.keywords),
     image_url:safeUrl(item.image_url),image_credit:text(item.image_credit)||null,published_at:new Date(date).toISOString(),
-    meta_title:title,meta_description:summary.slice(0,155),key_points:[],section_headings:[],
+    ...sourceSeo(title,summary),
   };
 }
 export function mapHubTrends(xValue: unknown, youtubeValue: unknown, now=Date.now()): Trend[] {

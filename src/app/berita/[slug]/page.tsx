@@ -13,10 +13,9 @@ import NewsCard from '@/components/NewsCard';
 export const revalidate = 3600;
 type P = { params: Promise<{ slug: string }> };
 
-/** Kartu 1200x630 buatan sendiri; dipakai bila foto sumber lebih kecil dari 1200px (syarat Discover). */
+/** Fallback kartu berbagi; bukan bukti foto memenuhi rekomendasi Discover. */
 const card = (a: Article) => ({ url: `/api/og?t=${encodeURIComponent(a.title)}&s=${encodeURIComponent(a.source_name)}&n=${encodeURIComponent(SITE.name)}`, width: 1200, height: 630 });
-const photoOk = (a: Article) => !!a.image_url && (a.image_width ?? 0) >= 1200 && (a.image_height ?? 0) > 0;
-const shareImage = (a: Article) => (photoOk(a) ? { url: a.image_url!, width: a.image_width!, height: a.image_height! } : card(a));
+const shareImage = (a: Article) => (a.image_url ? { url: a.image_url, ...(a.image_width && a.image_height ? { width:a.image_width,height:a.image_height } : {}) } : card(a));
 
 export async function generateMetadata({ params }: P): Promise<Metadata> {
   const a = await getBySlug((await params).slug);
@@ -25,7 +24,7 @@ export async function generateMetadata({ params }: P): Promise<Metadata> {
   const description = a.meta_description || a.ai_summary.slice(0, 155);
   const img = shareImage(a);
   return {
-    title, description, alternates: { canonical: `/berita/${a.slug}` }, keywords: a.tags,
+    title: { absolute: `${title} | ${SITE.name}` }, description, alternates: { canonical: `/berita/${a.slug}` }, keywords: a.tags,
     robots: { index: true, follow: true, 'max-image-preview': 'large', 'max-snippet': -1, 'max-video-preview': -1 },
     openGraph: { type: 'article', title, description, url: `/berita/${a.slug}`, publishedTime: a.published_at, section: a.category, tags: a.tags, images: [{ ...img, alt: a.title }] },
     twitter: { card: 'summary_large_image', title, description, images: [img.url] },
@@ -45,13 +44,13 @@ export default async function Detail({ params }: P) {
   const abs = (u: string) => (u.startsWith('http') ? u : SITE.url + u);
   const region = regionName(a.region);
   const used = new Set<string>();
-  const images = [...(photoOk(a) ? [a.image_url!] : []), abs(card(a).url)];
+  const schemaImage = a.image_url ? { '@type': 'ImageObject', url: abs(a.image_url), ...(a.image_width && a.image_height ? { width: a.image_width, height: a.image_height } : {}), ...(a.image_credit ? { creditText: a.image_credit } : {}) } : null;
 
   return (
     <div className="grid gap-8 lg:grid-cols-[1fr_300px]">
       <JsonLd data={{
-        '@context': 'https://schema.org', '@type': 'NewsArticle', headline: (a.meta_title || a.title).slice(0, 110),
-        description: a.meta_description, image: images, thumbnailUrl: images[0], datePublished: a.published_at, dateModified: a.published_at,
+        '@context': 'https://schema.org', '@type': 'NewsArticle', headline: a.title,
+        description: a.meta_description || a.ai_summary.slice(0,155), ...(schemaImage ? { image: [schemaImage], thumbnailUrl: a.image_url } : {}), datePublished: a.published_at, 
         inLanguage: 'id-ID', articleSection: a.category, keywords: a.tags?.join(', '), mainEntityOfPage: url, isBasedOn: a.source_url,
         ...(region ? { contentLocation: { '@type': 'Place', name: region } } : {}),
         author: { '@type': 'Organization', name: SITE.name, url: SITE.url }, publisher: { '@type': 'Organization', name: SITE.name, url: SITE.url },
