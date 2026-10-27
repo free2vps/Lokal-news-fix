@@ -14,6 +14,7 @@ async function fetchHub(type:string){
  const data=object(JSON.parse(raw));if(!data?.ok)throw new Error('Respons Content Hub tidak valid');return data;
 }
 export async function importContentHub(options:{articles?:boolean}={},deps:{db?:ReturnType<typeof supabaseAdmin>;load?:typeof fetchHub;changed?:()=>void}={}){
+ if(process.env.CONTENT_HUB_TRANSPORT==='push'&&!deps.load)return {mode:'content-hub-push',sources:0,found:0,inserted:0,skipped:0,snapshots:[] as string[],errors:[] as string[],note:'Menunggu pengiriman dari Content Hub; tidak melakukan pull'};
  const db=deps.db||supabaseAdmin(),load=deps.load||fetchHub,owner=randomUUID();const stats={mode:'content-hub',sources:0,found:0,inserted:0,skipped:0,snapshots:[] as string[],errors:[] as string[]};
  const {data:locked,error:lockError}=await db.rpc('acquire_content_hub_lease',{lease_owner:owner});
  if(lockError)throw new Error('Lock database belum tersedia; jalankan migrasi Content Hub');
