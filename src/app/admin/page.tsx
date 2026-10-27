@@ -27,7 +27,7 @@ export default async function Admin({ searchParams }: { searchParams: Promise<{ 
 
       <section className="rounded-lg border border-line bg-surface p-5">
         <h2 className="font-serif text-xl font-semibold">Trending & hype sosial</h2>
-        <p className="mt-1 text-sm text-muted">Topik dari Google Trends, X, dan YouTube diambil otomatis tiap jam. Untuk TikTok, Instagram, Facebook, dan Threads, tambahkan postingan yang sedang ramai secara manual.</p>
+        <p className="mt-1 text-sm text-muted">Topik mengikuti sumber dan jadwal sinkronisasi yang benar-benar diaktifkan. Untuk TikTok, Instagram, Facebook, dan Threads, tambahkan postingan yang sedang ramai secara manual.</p>
         <form action={syncTrending} className="mt-3"><button className="rounded-md bg-brand px-4 py-2 text-sm font-semibold text-bg">Sync trending sekarang</button></form>
         <form action={addHype} className="mt-4 grid gap-3 border-t border-line pt-4">
           <div className="grid gap-3 sm:grid-cols-2">

@@ -1,11 +1,13 @@
 import { supabase } from './supabase';
 import type { Article } from './types';
+import { hubEnabled, cachedHubTrends } from './content-hub/cache';
 
 const LIST = 'id,slug,title,ai_summary,category,tags,image_url,image_credit,source_name,published_at,region,image_width,image_height,section';
 const DETAIL = LIST + ',source_url,original_title,key_points,meta_title,meta_description,social_caption,section_headings';
 
 export async function getLatest({ limit = 12, offset = 0, category, section }: { limit?: number; offset?: number; category?: string; section?: string }) {
   let q = supabase().from('articles').select(LIST).order('published_at', { ascending: false }).range(offset, offset + limit - 1);
+  if (hubEnabled()) q = q.gte('published_at',new Date(Date.now()-72*3600000).toISOString()).lte('published_at',new Date(Date.now()+300000).toISOString());
   if (category) q = q.eq('category', category);
   if (section) q = q.eq('section', section);
   const { data } = await q;
@@ -41,6 +43,12 @@ export async function getSitemapRows() {
 
 import type { Trend } from './types';
 export async function getTrending(): Promise<Trend[]> {
+  if (hubEnabled()) {
+    const cached = await cachedHubTrends().catch(() => []);
+    // Only manual posts may supplement Hub data; never silently substitute old auto sources.
+    const { data } = await supabase().from('trending').select('id,platform,kind,rank,title,url,metric,image_url').eq('source','manual').or(`expires_at.is.null,expires_at.gt.${new Date().toISOString()}`).order('rank');
+    return [...cached, ...((data ?? []) as Trend[])];
+  }
   const { data } = await supabase().from('trending').select('id,platform,kind,rank,title,url,metric,image_url')
     .or(`expires_at.is.null,expires_at.gt.${new Date().toISOString()}`).order('rank');
   return (data ?? []) as Trend[];

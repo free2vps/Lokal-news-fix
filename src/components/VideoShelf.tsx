@@ -64,7 +64,8 @@ export default function VideoShelf({ picks, trending }: { picks: Trend[]; trendi
           ))}
         </ul>
       </div>
-      {cur.key === 'trending' && <p className="mt-2 text-xs text-muted">Daftar dari youtube.trends24.in, diperbarui tiap jam. Video diputar langsung dari YouTube.</p>}
+      {cur.key === 'pilihan' && <p className="mt-2 text-xs text-muted">Video dari playlist sumber, bukan daftar seluruh musik terbaru YouTube. Klasifikasi awal berbasis metadata.</p>}
+      {cur.key === 'trending' && <p className="mt-2 text-xs text-muted">Daftar dari sumber YouTube Trending yang dikonfigurasi. Video diputar langsung dari YouTube.</p>}
     </section>
   );
 }

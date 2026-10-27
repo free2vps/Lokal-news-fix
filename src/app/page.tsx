@@ -22,8 +22,9 @@ const BLOCKS = ['Info Pemda', 'Peristiwa Daerah', 'Lowongan & CPNS', 'Event & Ke
 const adOn = (k: AdKey) => ADS[k].kind !== 'none' || process.env.NODE_ENV !== 'production';
 
 export default async function Home() {
+  const hubMode=process.env.CONTENT_HUB_ENABLED==='true';
   const [news, fun, trending, regions, jobs] = await Promise.all([
-    getLatest({ limit: 9, section: 'berita' }), getLatest({ limit: 2, section: 'hiburan' }),
+    getLatest({ limit: hubMode?6:9, section: 'berita' }), getLatest({ limit: hubMode?4:2, section: 'hiburan' }),
     getTrending(), getActiveRegions(), getLatest({ limit: 1, category: 'Lowongan & CPNS' }),
   ]);
   const pool: Article[] = [...news, ...fun].sort((a, b) => +new Date(b.published_at) - +new Date(a.published_at));

@@ -16,7 +16,7 @@ export async function generateMetadata({ params }: P): Promise<Metadata> {
   const items = await load(slug);
   return {
     title: `Berita ${r.name} Terbaru Hari Ini`,
-    description: `Berita terbaru seputar ${r.name}: info pemda, peristiwa daerah, lowongan, dan kebijakan lokal, diperbarui setiap jam.`,
+    description: `Berita terbaru seputar ${r.name}: info pemda, peristiwa daerah, lowongan, dan kebijakan lokal, diperbarui mengikuti jadwal sinkronisasi.`,
     alternates: { canonical: `/wilayah/${slug}` },
     robots: items.length ? { index: true, follow: true, 'max-image-preview': 'large' } : { index: false, follow: true },
   };
