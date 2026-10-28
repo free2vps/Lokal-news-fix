@@ -8,12 +8,24 @@ import {sourceTime} from './editorial';
 export const X_URL='https://trends24.in/indonesia/';
 export function parseX(html:string){
  const $=cheerio.load(html),cards=$('h3[data-timestamp]').toArray().map(e=>({e,t:Number($(e).attr('data-timestamp')),label:$(e).text().replace(/\s+/g,' ').trim().toLowerCase()})).filter(c=>Number.isFinite(c.t)&&c.t>0&&$(c.e).parent().find('ol.trend-card__list').length);
- const latest=Math.max(...cards.map(c=>c.t));const candidate=cards.filter(c=>/^1 hour ago$/.test(c.label)&&latest-c.t>=2700&&latest-c.t<=5400).sort((a,b)=>b.t-a.t)[0];
+ const latest=Math.max(...cards.map(c=>c.t));
+ const eligible=cards.filter(c=>latest-c.t>=2700&&latest-c.t<=5400);
+ let method='explicit_label';
+ let candidate=eligible.filter(c=>/^1 hour ago$/.test(c.label)).sort((a,b)=>b.t-a.t)[0];
+ if(!candidate){
+  // Source renders relative labels in the browser. Accept raw date headings only
+  // when they independently agree with their source timestamp (subsecond rounding tolerated).
+  const dated=cards.filter(c=>Number.isFinite(Date.parse(c.label))&&Math.abs(Date.parse(c.label)-c.t*1000)<1500);
+  if(dated.some(c=>c.t===latest)){
+   candidate=eligible.filter(c=>dated.includes(c)).sort((a,b)=>Math.abs(latest-a.t-3600)-Math.abs(latest-b.t-3600))[0];
+   method='source_timestamp_approx_one_hour_before_latest';
+  }
+ }
  if(!candidate)throw Error('X_ONE_HOUR_UNAVAILABLE');
  const seen=new Set<string>(),items:{text:string;rank:number}[]=[];
  $(candidate.e).parent().find('ol.trend-card__list > li').each((index,el)=>{const text=$(el).find('a.trend-link').first().text().replace(/\s+/g,' ').trim();const key=text.normalize('NFKC').toLowerCase();if(text&&text.length<=200&&!seen.has(key)){seen.add(key);items.push({text,rank:index+1});}});
  if(!items.length)throw Error('X_ONE_HOUR_UNAVAILABLE');
- return {items,sourceUrl:X_URL,selectionLabel:'1 hour ago',sourceSnapshotAt:new Date(candidate.t*1000).toISOString(),sourceLatestAt:new Date(latest*1000).toISOString()};
+ return {items,sourceUrl:X_URL,selectionLabel:method==='explicit_label'?'1 hour ago':'Sekitar satu jam sebelum snapshot terbaru',selectionMethod:method,snapshotGapSeconds:Math.round((latest-candidate.t)*1000)/1000,sourceSnapshotAt:new Date(candidate.t*1000).toISOString(),sourceLatestAt:new Date(latest*1000).toISOString()};
 }
 export async function syncX(db:Client){return runJob(db,'x',async()=>{await checkRobots(X_URL,['trends24.in']);const parsed=parseX(await publicFetch(X_URL,1500000,['trends24.in']));const value={...parsed,observedAt:new Date().toISOString(),origin:'manual_sync'};await storeDataset(db,'x',value);return {value,count:parsed.items.length};});}
 export async function getX(db:Client,master:string|undefined){
