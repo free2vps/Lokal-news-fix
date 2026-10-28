@@ -8,7 +8,7 @@ const topics = (all: Trend[]) => all.filter((t) => t.kind === 'topic').sort((a, 
 
 export const topicsOf = (all: Trend[]) => dedupe(topics(all));
 /** Topik X (API resmi atau trends24); bila kosong, pakai semua topik agar panel tidak kosong. */
-export const xTopics = (all: Trend[]) => { const x = dedupe(topics(all).filter((t) => t.platform === 'x' || t.platform === 'x_t24')); return x.length ? x : topicsOf(all); };
+export const xTopics = (all: Trend[]) => { const x = dedupe(topics(all).filter((t) => t.platform === 'x' || t.platform === 'x_t24')); return x; };
 /** Topik Google untuk teks berjalan; bila kosong, pakai semua topik. */
 export const googleTopics = (all: Trend[]) => { const g = dedupe(topics(all).filter((t) => t.platform === 'google')); return g.length ? g : topicsOf(all); };
 

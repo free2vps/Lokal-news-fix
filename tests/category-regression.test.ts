@@ -1,0 +1,4 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {refineCategory} from '../src/lib/utils';
+test('PPPK financing is economy, not job vacancy',()=>{assert.equal(refineCategory('Bupati Dompu dukung BPR NTB perluas layanan PPPK dan UMKM','Info Pemda','dompu'),'Ekonomi');assert.equal(refineCategory('Bank menawarkan pinjaman bagi PPPK Mataram','Lowongan & CPNS','mataram'),'Ekonomi');});
+test('real PPPK recruitment remains jobs even if bank is mentioned',()=>{assert.equal(refineCategory('Pendaftaran PPPK dibuka, pembayaran melalui bank','Umum','ntb'),'Lowongan & CPNS');assert.equal(refineCategory('Seleksi calon PPPK di Mataram','Umum','mataram'),'Lowongan & CPNS');});
+test('bare PPPK is not a recruitment signal',()=>assert.equal(refineCategory('Pemda menyalurkan seragam PPPK','Info Pemda','ntb'),'Info Pemda'));

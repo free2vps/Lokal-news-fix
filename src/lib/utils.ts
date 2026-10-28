@@ -7,12 +7,14 @@ export const categoriesFor = (section: string) => (section === 'hiburan' ? FUN_C
 
 // Niche lokal berkompetisi rendah: aturan kata kunci menimpa pilihan AI bila berita bersifat lokal.
 const LOCAL_RULES: [string, RegExp][] = [
-  ['Lowongan & CPNS', /\b(lowongan|cpns|pppk|rekrutmen|pendaftaran (cpns|pppk|asn)|seleksi (calon )?(asn|pegawai)|loker)\b/i],
+  ['Lowongan & CPNS', /\b(lowongan|rekrutmen|pendaftaran (?:cpns|pppk|asn)|seleksi (?:calon )?(?:cpns|pppk|asn|pegawai)|formasi (?:cpns|pppk|asn)|loker)\b/i],
   ['Event & Kebijakan Lokal', /\b(festival|pekan raya|bazar|musrenbang|sosialisasi|perda|perbup|pergub|peraturan (bupati|daerah|gubernur|wali ?kota)|kebijakan)\b/i],
   ['Info Pemda', /\b(pemda|pemkab|pemkot|pemprov|bupati|wakil bupati|wali ?kota|gubernur|dprd|apbd|bappeda|sekda|dinas)\b/i],
   ['Peristiwa Daerah', /\b(kecelakaan|kebakaran|banjir|longsor|gempa|ditemukan tewas|hilang|basarnas|bpbd|polres|polsek)\b/i],
 ];
 export function refineCategory(text: string, aiCategory: string, region: string | null) {
+  const jobs=LOCAL_RULES[0][1].test(text);
+  if(!jobs&&/\b(bank|bpr|perbankan|pembiayaan|pinjaman|kredit|umkm|keuangan)\b/i.test(text))return 'Ekonomi';
   const hit = LOCAL_RULES.find(([, re]) => re.test(text));
   if (hit && (region || hit[0] === 'Lowongan & CPNS')) return hit[0];
   return aiCategory;

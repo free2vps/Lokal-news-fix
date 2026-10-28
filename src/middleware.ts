@@ -1,14 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-export function middleware(req: NextRequest) {
-  const pass = process.env.ADMIN_PASSWORD;
-  if (!pass) return new NextResponse('ADMIN_PASSWORD belum diatur', { status: 503 });
-  const h = req.headers.get('authorization') || '';
-  if (h.startsWith('Basic ')) {
-    const decoded = atob(h.slice(6));
-    const i = decoded.indexOf(':');
-    if (decoded.slice(0, i) === 'admin' && decoded.slice(i + 1) === pass) return NextResponse.next();
-  }
-  return new NextResponse('Autentikasi diperlukan', { status: 401, headers: { 'WWW-Authenticate': 'Basic realm="Admin"' } });
+// The /admin shell contains no sensitive data. Every data/action API separately
+// verifies an HttpOnly session and all mutations enforce origin/CSRF checks.
+export function middleware(_request: NextRequest) {
+  const response = NextResponse.next();
+  response.headers.set('Cache-Control', 'no-store');
+  response.headers.set('X-Robots-Tag', 'noindex, nofollow, noarchive');
+  return response;
 }
-export const config = { matcher: ['/admin/:path*'] };
+export const config = { matcher: ['/admin/:path*', '/api/hub/:path*'] };
