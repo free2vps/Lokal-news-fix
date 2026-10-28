@@ -1,4 +1,5 @@
 import { createClient, type Client } from '@libsql/client';
+import { bootstrapTargetMatches } from './target';
 
 let instance: Client | undefined;
 
@@ -7,6 +8,12 @@ export function getHubDb(): Client {
   if (instance) return instance;
   const url = process.env.HUB_DATABASE_URL?.trim();
   if (!url) throw new Error('HUB_DB_NOT_CONFIGURED');
+  // When a Preview target is configured, never send the DB token to an
+  // unintended hostname, even from non-bootstrap Hub endpoints.
+  const enforceExpectedTarget = process.env.HUB_BOOTSTRAP_ALLOW === 'true' || Boolean(process.env.HUB_BOOTSTRAP_EXPECTED_DATABASE);
+  if (enforceExpectedTarget && !bootstrapTargetMatches(process.env)) {
+    throw new Error('HUB_DB_TARGET_MISMATCH');
+  }
   if (url.startsWith('file:')) {
     if (process.env.HUB_ALLOW_LOCAL_DB !== 'true' || process.env.NODE_ENV === 'production' || process.env.VERCEL) {
       throw new Error('HUB_LOCAL_DB_NOT_ALLOWED');

@@ -32,10 +32,13 @@ function auditText(audit: Audit | null, sourceId: string) {
   return 'Akses atau aturan belum dapat dipastikan';
 }
 
-export default function HubApp({ staticPreviewEnabled = false }: { staticPreviewEnabled?: boolean }) {
+export default function HubApp({ staticPreviewEnabled = false, bootstrapEnabled = false }: { staticPreviewEnabled?: boolean; bootstrapEnabled?: boolean }) {
   const [staticPreview, setStaticPreview] = useState(false);
   const [auth, setAuth] = useState<Auth | null>(null);
   const [authError, setAuthError] = useState('');
+  const [bootstrapToken, setBootstrapToken] = useState('');
+  const [bootstrapError, setBootstrapError] = useState('');
+  const [bootstrapConfirmed, setBootstrapConfirmed] = useState(false);
   const [password, setPassword] = useState(''); const [confirmPassword, setConfirmPassword] = useState(''); const [setupToken, setSetupToken] = useState('');
   const [busy, setBusy] = useState(false); const [tab, setTab] = useState<Tab>('Ringkasan');
   const [sources, setSources] = useState<Source[] | null>(null); const [news, setNews] = useState<News[] | null>(null);
@@ -64,6 +67,31 @@ export default function HubApp({ staticPreviewEnabled = false }: { staticPreview
     } catch (error) { setAuthError(error instanceof Error ? error.message : 'Login gagal.'); }
     finally { setBusy(false); }
   }
+  async function initializePreview(event: FormEvent) {
+    event.preventDefault(); setBootstrapError('');
+    if (!bootstrapConfirmed) { setBootstrapError('Pastikan database baru dan kosong.'); return; }
+    if (password !== confirmPassword) { setBootstrapError('Konfirmasi password tidak sama.'); return; }
+    setBusy(true);
+    let databaseInitialized = false;
+    try {
+      await api('bootstrap', { token: bootstrapToken, confirm: 'SIAPKAN DATABASE PREVIEW' });
+      databaseInitialized = true;
+      await api('auth/setup', { token: bootstrapToken, password });
+      setPassword(''); setConfirmPassword(''); setSetupToken(''); setBootstrapToken(''); setBootstrapConfirmed(false);
+      await checkAuth();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Inisialisasi belum berhasil.';
+      if (databaseInitialized) {
+        // Schema may have committed even if account setup or its response failed.
+        // Carry the token in component memory only, so the normal setup form can retry.
+        setSetupToken(bootstrapToken); setBootstrapToken('');
+        await checkAuth();
+        setAuthError('Database sudah disiapkan, tetapi akun belum dapat dipastikan: ' + message + ' Lanjutkan lewat formulir akun atau masuk.');
+      } else {
+        setBootstrapError(message);
+      }
+    } finally { setBusy(false); }
+  }
   async function logout() {
     try { await api('auth/logout', {}); }
     catch { setLoadError('Logout gagal; sesi mungkin masih aktif. Periksa koneksi dan coba lagi.'); return; }
@@ -84,6 +112,17 @@ export default function HubApp({ staticPreviewEnabled = false }: { staticPreview
       <button className="button" disabled={busy}>{busy ? 'Memeriksa…' : auth.configured ? 'Masuk dashboard →' : 'Buat akun administrator'}</button>
     </form>}
     {authError && <p><button className="button secondary" onClick={() => void checkAuth()}>Coba lagi</button></p>}
+    {bootstrapEnabled && authError && !auth && <details className="panel"><summary>Siapkan database Preview baru</summary>
+      <p>Hanya untuk database Turso baru dan kosong pada branch <b>webhub</b>. Satu langkah ini menyiapkan skema, 11 sumber nonaktif dan akun administrator baru. Tidak ada data lama yang dipindahkan.</p>
+      <form className="form-grid" onSubmit={initializePreview}>
+        <label>Token pengaturan awal<input required type="password" minLength={43} maxLength={128} pattern="[A-Za-z0-9_-]+" autoComplete="off" value={bootstrapToken} onChange={e => setBootstrapToken(e.target.value)} /></label>
+        <label>Password administrator<input required type="password" minLength={12} maxLength={200} autoComplete="new-password" value={password} onChange={e => setPassword(e.target.value)} /></label>
+        <label>Ulangi password administrator<input required type="password" minLength={12} maxLength={200} autoComplete="new-password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} /></label>
+        <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}><input style={{ width: 16, height: 16, flexShrink: 0 }} type="checkbox" required checked={bootstrapConfirmed} onChange={e => setBootstrapConfirmed(e.target.checked)} /> Saya memastikan database yang dituju baru, kosong dan khusus Preview.</label>
+        {bootstrapError && <div role="alert" className="notice error">{bootstrapError}</div>}
+        <button className="button" disabled={busy}>{busy ? 'Menyiapkan…' : 'Siapkan Hub dan buat akun'}</button>
+      </form>
+    </details>}
     {staticPreviewEnabled && authError && <div className="notice warning"><b>Pratinjau tanpa database.</b> Anda dapat melihat menu dan 11 sumber dari berkas konfigurasi. Ini bukan sesi admin, tidak menampilkan data Hub lama, dan tidak menyimpan perubahan.<p><button className="button secondary" type="button" onClick={() => setStaticPreview(true)}>Lihat tampilan Hub →</button></p></div>}
   </div></div></div>;
   return <div className="hub-root"><aside><div className="brand"><b>P</b> Portal Hub</div><nav aria-label="Menu Content Hub">{tabs.map(t => <button type="button" key={t} className={tab === t ? 'active' : ''} onClick={() => setTab(t)}>{t}</button>)}</nav><div className="sidebar-note">CONTENT OPERATIONS<br />Asia/Makassar · WITA<br />Fondasi lokal · scheduler nonaktif</div></aside>
