@@ -4,7 +4,7 @@ import { slugify, timeAgo } from '@/lib/utils';
 
 const Thumb = ({ a }: { a: Article }) => a.image_url
   // eslint-disable-next-line @next/next/no-img-element
-  ? <img src={a.image_url} alt={a.title} loading="lazy" decoding="async" referrerPolicy="no-referrer" className="h-full w-full object-cover" />
+  ? <img src={a.image_url} alt={a.title} loading="lazy" decoding="async" referrerPolicy="no-referrer" width={a.image_width||800} height={a.image_height||450} className="h-full w-full object-cover" />
   : <div className="grid h-full w-full place-items-center bg-brand/10 font-serif text-4xl text-brand/40" aria-hidden>{a.category[0]}</div>;
 
 const Badge = ({ c }: { c: string }) => (
@@ -43,7 +43,7 @@ export default function NewsCard({ a, variant = 'default' }: { a: Article; varia
     <article className="flex flex-col overflow-hidden rounded-lg border border-line bg-surface">
       <Link href={href} className="relative block aspect-[16/9] bg-line/50">
         <Thumb a={a} />
-        <span className="absolute left-3 top-3"><Badge c={a.category} /></span>
+        <span className="absolute left-3 top-3 rounded-full bg-brand px-2.5 py-0.5 text-xs font-medium text-white">{a.category}</span>
       </Link>
       <div className="flex flex-1 flex-col gap-2 p-4">
         <h3 className="line-clamp-3 font-serif text-lg font-semibold leading-snug"><Link href={href} className="hover:text-brand">{a.title}</Link></h3>

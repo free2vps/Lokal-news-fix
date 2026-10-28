@@ -1,0 +1,106 @@
+{
+  "schemaVersion": 1,
+  "description": "Sumber situs pemerintah daerah di Nusa Tenggara Barat yang diminta pemilik. Pendaftaran ke database dan pengumpulan otomatis belum dijalankan.",
+  "defaultEnabled": false,
+  "items": [
+    {
+      "id": "gov-ntb-provinsi",
+      "name": "Pemerintah Provinsi Nusa Tenggara Barat",
+      "jurisdiction": "Provinsi NTB",
+      "region": "NTB",
+      "requestedUrl": "https://ntbprov.go.id/",
+      "sourceKind": "government_website",
+      "enabled": false
+    },
+    {
+      "id": "gov-ntb-lombok-barat",
+      "name": "Pemerintah Kabupaten Lombok Barat",
+      "jurisdiction": "Kabupaten Lombok Barat",
+      "region": "NTB",
+      "requestedUrl": "https://portal.lombokbaratkab.go.id/jelajah/artikel/",
+      "sourceKind": "government_website",
+      "enabled": false
+    },
+    {
+      "id": "gov-ntb-lombok-tengah",
+      "name": "Pemerintah Kabupaten Lombok Tengah",
+      "jurisdiction": "Kabupaten Lombok Tengah",
+      "region": "NTB",
+      "requestedUrl": "https://www.lomboktengahkab.go.id/",
+      "sourceKind": "government_website",
+      "enabled": false
+    },
+    {
+      "id": "gov-ntb-lombok-timur",
+      "name": "Pemerintah Kabupaten Lombok Timur",
+      "jurisdiction": "Kabupaten Lombok Timur",
+      "region": "NTB",
+      "requestedUrl": "https://portal.lomboktimurkab.go.id/semua-berita.html",
+      "sourceKind": "government_website",
+      "enabled": false
+    },
+    {
+      "id": "gov-ntb-lombok-utara",
+      "name": "Pemerintah Kabupaten Lombok Utara",
+      "jurisdiction": "Kabupaten Lombok Utara",
+      "region": "NTB",
+      "requestedUrl": "https://lombokutarakab.go.id/",
+      "sourceKind": "government_website",
+      "enabled": false
+    },
+    {
+      "id": "gov-ntb-sumbawa",
+      "name": "Sekretariat Daerah Kabupaten Sumbawa",
+      "jurisdiction": "Kabupaten Sumbawa",
+      "region": "NTB",
+      "requestedUrl": "https://setda.sumbawakab.go.id/berita/",
+      "sourceKind": "government_website",
+      "enabled": false
+    },
+    {
+      "id": "gov-ntb-sumbawa-barat",
+      "name": "Prokopim Kabupaten Sumbawa Barat",
+      "jurisdiction": "Kabupaten Sumbawa Barat",
+      "region": "NTB",
+      "requestedUrl": "https://prokopim.sumbawabaratkab.go.id/category/berita/",
+      "sourceKind": "government_website",
+      "enabled": false
+    },
+    {
+      "id": "gov-ntb-dompu",
+      "name": "Diskominfo Kabupaten Dompu",
+      "jurisdiction": "Kabupaten Dompu",
+      "region": "NTB",
+      "requestedUrl": "https://diskominfo.dompukab.go.id/berita",
+      "sourceKind": "government_website",
+      "enabled": false
+    },
+    {
+      "id": "gov-ntb-kabupaten-bima",
+      "name": "Diskominfostik Kabupaten Bima",
+      "jurisdiction": "Kabupaten Bima",
+      "region": "NTB",
+      "requestedUrl": "https://diskominfostik.bimakab.go.id/id/news?sort=latest",
+      "sourceKind": "government_website",
+      "enabled": false
+    },
+    {
+      "id": "gov-ntb-kota-mataram",
+      "name": "Pemerintah Kota Mataram",
+      "jurisdiction": "Kota Mataram",
+      "region": "NTB",
+      "requestedUrl": "https://web.mataramkota.go.id/news/",
+      "sourceKind": "government_website",
+      "enabled": false
+    },
+    {
+      "id": "gov-ntb-kota-bima",
+      "name": "Diskominfotik Kota Bima",
+      "jurisdiction": "Kota Bima",
+      "region": "NTB",
+      "requestedUrl": "https://kominfotik.bimakota.go.id/",
+      "sourceKind": "government_website",
+      "enabled": false
+    }
+  ]
+}

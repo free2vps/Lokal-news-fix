@@ -1,0 +1,240 @@
+{
+  "checkedAt": "2026-10-27T14:45:27.186Z",
+  "purpose": "Single bounded read-only source discovery. No article page, publication, scheduler, DB or provider changes.",
+  "results": [
+    {
+      "id": "gov-ntb-provinsi",
+      "name": "Pemerintah Provinsi Nusa Tenggara Barat",
+      "requestedUrl": "https://ntbprov.go.id/",
+      "checkedAt": "2026-10-27T14:45:14.283Z",
+      "rightsStatus": "not_verified",
+      "active": false,
+      "robots": {
+        "allowed": false,
+        "robots": "unknown",
+        "reason": "UNABLE_TO_VERIFY_LEAF_SIGNATURE"
+      },
+      "page": {
+        "url": "https://ntbprov.go.id/",
+        "http": null,
+        "ok": false,
+        "contentType": null,
+        "reason": "ROBOTS_DITOLAK_ATAU_TIDAK_DIKETAHUI"
+      }
+    },
+    {
+      "id": "gov-ntb-lombok-barat",
+      "name": "Pemerintah Kabupaten Lombok Barat",
+      "requestedUrl": "https://portal.lombokbaratkab.go.id/jelajah/artikel/",
+      "checkedAt": "2026-10-27T14:45:14.289Z",
+      "rightsStatus": "not_verified",
+      "active": false,
+      "robots": {
+        "allowed": false,
+        "robots": "unknown",
+        "reason": "UNABLE_TO_VERIFY_LEAF_SIGNATURE"
+      },
+      "page": {
+        "url": "https://portal.lombokbaratkab.go.id/jelajah/artikel/",
+        "http": null,
+        "ok": false,
+        "contentType": null,
+        "reason": "ROBOTS_DITOLAK_ATAU_TIDAK_DIKETAHUI"
+      }
+    },
+    {
+      "id": "gov-ntb-lombok-tengah",
+      "name": "Pemerintah Kabupaten Lombok Tengah",
+      "requestedUrl": "https://www.lomboktengahkab.go.id/",
+      "checkedAt": "2026-10-27T14:45:14.290Z",
+      "rightsStatus": "not_verified",
+      "active": false,
+      "robots": {
+        "allowed": true,
+        "robots": "absent",
+        "http": 404,
+        "reason": "robots.txt tidak ada; bukan bukti izin lisensi"
+      },
+      "page": {
+        "url": "https://www.lomboktengahkab.go.id/",
+        "http": 403,
+        "ok": false,
+        "contentType": "text/html",
+        "reason": null
+      }
+    },
+    {
+      "id": "gov-ntb-lombok-timur",
+      "name": "Pemerintah Kabupaten Lombok Timur",
+      "requestedUrl": "https://portal.lomboktimurkab.go.id/semua-berita.html",
+      "checkedAt": "2026-10-27T14:45:14.290Z",
+      "rightsStatus": "not_verified",
+      "active": false,
+      "robots": {
+        "allowed": true,
+        "robots": "available",
+        "http": 200,
+        "reason": null
+      },
+      "page": {
+        "url": "https://portal.lomboktimurkab.go.id/semua-berita.html",
+        "http": 200,
+        "ok": true,
+        "contentType": "text/html",
+        "reason": null,
+        "title": "Website Portal Resmi Pemerintah Kabupaten Lombok Timur",
+        "candidateCountAtLeast": 0,
+        "candidateLinks": [],
+        "timeTags": 0
+      },
+      "advertisedFeeds": [],
+      "listingCandidate": null,
+      "feed": null
+    },
+    {
+      "id": "gov-ntb-lombok-utara",
+      "name": "Pemerintah Kabupaten Lombok Utara",
+      "requestedUrl": "https://lombokutarakab.go.id/",
+      "checkedAt": "2026-10-27T14:45:14.970Z",
+      "rightsStatus": "not_verified",
+      "active": false,
+      "robots": {
+        "allowed": false,
+        "robots": "unknown",
+        "reason": "request-timeout"
+      },
+      "page": {
+        "url": "https://lombokutarakab.go.id/",
+        "http": null,
+        "ok": false,
+        "contentType": null,
+        "reason": "ROBOTS_DITOLAK_ATAU_TIDAK_DIKETAHUI"
+      }
+    },
+    {
+      "id": "gov-ntb-sumbawa",
+      "name": "Sekretariat Daerah Kabupaten Sumbawa",
+      "requestedUrl": "https://setda.sumbawakab.go.id/berita/",
+      "checkedAt": "2026-10-27T14:45:14.992Z",
+      "rightsStatus": "not_verified",
+      "active": false,
+      "robots": {
+        "allowed": true,
+        "robots": "available",
+        "http": 200,
+        "reason": null
+      },
+      "page": {
+        "url": "https://setda.sumbawakab.go.id/berita/",
+        "http": 403,
+        "ok": false,
+        "contentType": null,
+        "reason": "PERLINDUNGAN_OTOMATIS_TIDAK_DILEWATI"
+      }
+    },
+    {
+      "id": "gov-ntb-sumbawa-barat",
+      "name": "Prokopim Kabupaten Sumbawa Barat",
+      "requestedUrl": "https://prokopim.sumbawabaratkab.go.id/category/berita/",
+      "checkedAt": "2026-10-27T14:45:15.169Z",
+      "rightsStatus": "not_verified",
+      "active": false,
+      "robots": {
+        "allowed": false,
+        "robots": "unknown",
+        "reason": "request-timeout"
+      },
+      "page": {
+        "url": "https://prokopim.sumbawabaratkab.go.id/category/berita/",
+        "http": null,
+        "ok": false,
+        "contentType": null,
+        "reason": "ROBOTS_DITOLAK_ATAU_TIDAK_DIKETAHUI"
+      }
+    },
+    {
+      "id": "gov-ntb-dompu",
+      "name": "Diskominfo Kabupaten Dompu",
+      "requestedUrl": "https://diskominfo.dompukab.go.id/berita",
+      "checkedAt": "2026-10-27T14:45:15.893Z",
+      "rightsStatus": "not_verified",
+      "active": false,
+      "robots": {
+        "allowed": false,
+        "robots": "blocked",
+        "http": 403,
+        "reason": "Kebijakan akses belum dapat dipastikan"
+      },
+      "page": {
+        "url": "https://diskominfo.dompukab.go.id/berita",
+        "http": null,
+        "ok": false,
+        "contentType": null,
+        "reason": "ROBOTS_DITOLAK_ATAU_TIDAK_DIKETAHUI"
+      }
+    },
+    {
+      "id": "gov-ntb-kabupaten-bima",
+      "name": "Diskominfostik Kabupaten Bima",
+      "requestedUrl": "https://diskominfostik.bimakab.go.id/id/news?sort=latest",
+      "checkedAt": "2026-10-27T14:45:15.896Z",
+      "rightsStatus": "not_verified",
+      "active": false,
+      "robots": {
+        "allowed": false,
+        "robots": "blocked",
+        "http": 403,
+        "reason": "Kebijakan akses belum dapat dipastikan"
+      },
+      "page": {
+        "url": "https://diskominfostik.bimakab.go.id/id/news?sort=latest",
+        "http": null,
+        "ok": false,
+        "contentType": null,
+        "reason": "ROBOTS_DITOLAK_ATAU_TIDAK_DIKETAHUI"
+      }
+    },
+    {
+      "id": "gov-ntb-kota-mataram",
+      "name": "Pemerintah Kota Mataram",
+      "requestedUrl": "https://web.mataramkota.go.id/news/",
+      "checkedAt": "2026-10-27T14:45:16.072Z",
+      "rightsStatus": "not_verified",
+      "active": false,
+      "robots": {
+        "allowed": false,
+        "robots": "blocked",
+        "http": 403,
+        "reason": "Kebijakan akses belum dapat dipastikan"
+      },
+      "page": {
+        "url": "https://web.mataramkota.go.id/news/",
+        "http": null,
+        "ok": false,
+        "contentType": null,
+        "reason": "ROBOTS_DITOLAK_ATAU_TIDAK_DIKETAHUI"
+      }
+    },
+    {
+      "id": "gov-ntb-kota-bima",
+      "name": "Diskominfotik Kota Bima",
+      "requestedUrl": "https://kominfotik.bimakota.go.id/",
+      "checkedAt": "2026-10-27T14:45:16.081Z",
+      "rightsStatus": "not_verified",
+      "active": false,
+      "robots": {
+        "allowed": false,
+        "robots": "blocked",
+        "http": 403,
+        "reason": "Kebijakan akses belum dapat dipastikan"
+      },
+      "page": {
+        "url": "https://kominfotik.bimakota.go.id/",
+        "http": null,
+        "ok": false,
+        "contentType": null,
+        "reason": "ROBOTS_DITOLAK_ATAU_TIDAK_DIKETAHUI"
+      }
+    }
+  ]
+}

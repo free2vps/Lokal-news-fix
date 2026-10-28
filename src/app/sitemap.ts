@@ -15,7 +15,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const topTags = [...tagCount].filter(([, n]) => n >= 3).sort((a, b) => b[1] - a[1]).slice(0, 200);
 
   return [
-    { url: SITE.url, lastModified: new Date(), changeFrequency: 'hourly', priority: 1 },
+    { url: SITE.url, ...(rows.length ? { lastModified: rows[0].published_at } : {}), changeFrequency: 'hourly', priority: 1 },
     { url: `${SITE.url}/hiburan`, changeFrequency: 'hourly', priority: 0.8 },
     ...ALL_CATEGORIES.map((c) => ({ url: `${SITE.url}/kategori/${slugify(c)}`, changeFrequency: 'hourly' as const, priority: 0.7 })),
     ...REGIONS.filter((r) => regionsWithNews.has(r.slug)).map((r) => ({ url: `${SITE.url}/wilayah/${r.slug}`, changeFrequency: 'hourly' as const, priority: 0.8 })),
