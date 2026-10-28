@@ -6,11 +6,15 @@ export const dynamic = 'force-dynamic';
 export async function GET(request: Request) {
   const access = await authenticatedDb(request); if (access.error) return access.error;
   try {
+    const raw=new URL(request.url).searchParams.get('offset')||'0';
+    if(!/^\d{1,7}$/.test(raw))return errorJson('Offset tidak valid.',400);
+    const offset=Number(raw);
+    const total=Number((await access.db.execute('SELECT count(*) AS n FROM hub_items')).rows[0].n);
     const rows = (await access.db.execute(`SELECT i.*,s.name AS source_name,
       (SELECT count(*) FROM hub_items other WHERE other.normalized_original_url=i.normalized_original_url AND other.id<>i.id) AS possible_duplicates
-      FROM hub_items i JOIN hub_sources s ON s.id=i.source_id ORDER BY i.last_seen_at DESC LIMIT 100`)).rows;
+      FROM hub_items i JOIN hub_sources s ON s.id=i.source_id ORDER BY i.last_seen_at DESC,i.id LIMIT 100 OFFSET ${offset}`)).rows;
     const items = rows.map(r => ({ id: String(r.id), sourceId: String(r.source_id), sourceName: String(r.source_name), sourceUrl: String(r.original_url), sourceTitle: String(r.source_title), sourceSnippet: r.source_snippet == null ? null : String(r.source_snippet), sourcePublishedAt: r.source_published_at == null ? null : String(r.source_published_at), sourceDateRaw: r.source_date_raw == null ? null : String(r.source_date_raw), firstSeenAt: String(r.first_seen_at), lastSeenAt: String(r.last_seen_at), editorialTitle: r.editorial_title == null ? null : String(r.editorial_title), editorialSummary: r.editorial_summary == null ? null : String(r.editorial_summary), editorialCategory: r.editorial_category == null ? null : String(r.editorial_category), version: Number(r.version), reviewState: String(r.review_state), approvedVersion: r.approved_version == null ? null : Number(r.approved_version), possibleDuplicates: Number(r.possible_duplicates) }));
-    return NextResponse.json({ ok: true, items, publicationEnabled: false }, { headers: NO_STORE });
+    return NextResponse.json({ ok: true, items, total, offset, publicationEnabled: false }, { headers: NO_STORE });
   } catch { return errorJson('Data berita belum dapat dibaca.', 503); }
 }
 export async function POST(request: Request) {
@@ -19,7 +23,7 @@ export async function POST(request: Request) {
   let body: Record<string, unknown>;
   try { body = await readJson(request); } catch { return errorJson('Permintaan tidak valid atau terlalu besar.', 400); }
   const id = body.id, version = body.version;
-  if (typeof id !== 'string' || !/^[0-9a-f-]{36}$/.test(id) || typeof version !== 'number' || !Number.isInteger(version)) return errorJson('ID atau versi tidak valid.', 400);
+  if (typeof id !== 'string' || !/^(?:legacy-news:)?[0-9a-f-]{36}$/.test(id) || typeof version !== 'number' || !Number.isInteger(version)) return errorJson('ID atau versi tidak valid.', 400);
   try {
     if (body.action === 'edit') {
       const values = [body.editorialTitle, body.editorialSummary, body.editorialCategory];

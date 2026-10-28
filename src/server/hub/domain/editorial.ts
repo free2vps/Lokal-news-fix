@@ -141,6 +141,7 @@ export async function approveEditorial(db: Client, id: string, expectedVersion: 
     if (item.review_state === 'approved' && Number(item.approved_version) === expectedVersion) { await tx.commit(); return { version: expectedVersion, alreadyApproved: true }; }
     if (item.review_state === 'identity_review') throw new Error('IDENTITY_REVIEW_REQUIRED');
     if (!item.source_published_at) throw new Error('SOURCE_DATE_REQUIRED');
+    try {sourceTime(item.source_published_at);} catch {throw new Error('SOURCE_DATE_REQUIRED');}
     const snapshot = JSON.stringify({ id: item.id, sourceId: item.source_id, originalUrl: item.original_url, sourceTitle: item.source_title, sourceSnippet: item.source_snippet, sourcePublishedAt: item.source_published_at, sourceDateRaw: item.source_date_raw, editorialTitle: item.editorial_title, editorialSummary: item.editorial_summary, editorialCategory: item.editorial_category, version: Number(item.version) });
     await tx.execute({ sql: 'INSERT INTO hub_item_approvals(item_id,version,snapshot_json,approved_at,approved_by) VALUES(?,?,?,?,?)', args: [id, expectedVersion, snapshot, new Date().toISOString(), actor] });
     await tx.execute({ sql: "UPDATE hub_items SET review_state='approved',approved_version=? WHERE id=? AND version=?", args: [expectedVersion, id, expectedVersion] });

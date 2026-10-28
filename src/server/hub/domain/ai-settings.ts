@@ -1,12 +1,12 @@
 import type { Client } from '@libsql/client';
-import { encryptSecret, masterKeyConfigured } from '../security/encryption';
+import { decryptSecret, encryptSecret, masterKeyConfigured } from '../security/encryption';
 
 const PROVIDERS = ['openrouter', 'groq', 'cohere'] as const;
 type Provider = typeof PROVIDERS[number];
 function isProvider(value: unknown): value is Provider { return typeof value === 'string' && (PROVIDERS as readonly string[]).includes(value); }
 function validModel(provider: Provider, model: unknown): model is string {
   if (typeof model !== 'string' || model.length < 1 || model.length > 150 || !/^[a-zA-Z0-9_.:/-]+$/.test(model)) return false;
-  return provider !== 'openrouter' || model.endsWith(':free');
+  return provider !== 'openrouter' || (model === 'openrouter/free' || model.endsWith(':free'));
 }
 /** Persist dashboard inputs, but never enable or call any provider in this foundation. */
 export async function saveAiSetting(db: Client, input: { provider: unknown; model: unknown; apiKey?: unknown }, master: string | undefined) {
@@ -25,7 +25,9 @@ export async function readAiSettings(db: Client, master: string | undefined) {
   const rows = (await db.execute('SELECT provider,model,key_ciphertext,updated_at FROM hub_ai_provider_settings ORDER BY provider')).rows;
   return {
     masterKeyReady: masterKeyConfigured(master),
-    runtime: 'not_implemented',
+    runtime: 'manual_suggestions',
+    policy: await db.execute("SELECT allow_public,groq_free FROM hub_ai_policy_v2 WHERE id='owner'").then(x => ({allowPublic:Number(x.rows[0]?.allow_public)===1,groqFree:Number(x.rows[0]?.groq_free)===1})).catch(() => ({allowPublic:false,groqFree:false})),
+    keysReadable: rows.every(r => { if (!r.key_ciphertext) return true; try {decryptSecret(String(r.key_ciphertext),String(r.provider),master);return true;} catch{return false;} }),
     providers: rows.map(r => ({ provider: String(r.provider), model: String(r.model), keyConfigured: Boolean(r.key_ciphertext), updatedAt: String(r.updated_at), use: r.provider === 'cohere' ? 'evaluation_only' : 'disabled' }))
   };
 }

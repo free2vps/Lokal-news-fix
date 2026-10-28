@@ -14,8 +14,14 @@ export async function POST(request: Request) {
   let body: Record<string, unknown>;
   try { body = await readJson(request); } catch { return errorJson('Permintaan tidak valid atau terlalu besar.', 400); }
   try {
+    if(body.action==='policy'){
+      if(typeof body.allowPublic!=='boolean'||typeof body.groqFree!=='boolean')return errorJson('Konfirmasi tidak valid.',400);
+      const result=await access.db.execute({sql:"UPDATE hub_ai_policy_v2 SET allow_public=?,groq_free=? WHERE id='owner'",args:[body.allowPublic?1:0,body.groqFree?1:0]});
+      if(!result.rowsAffected)return errorJson('Siapkan skema operasional dahulu.',409);
+      return NextResponse.json({ok:true},{headers:NO_STORE});
+    }
     await saveAiSetting(access.db, { provider: body.provider, model: body.model, apiKey: body.apiKey }, process.env.HUB_MASTER_KEY);
-    return NextResponse.json({ ok: true, runtime: 'not_implemented' }, { headers: NO_STORE });
+    return NextResponse.json({ ok: true, runtime: 'manual_suggestions' }, { headers: NO_STORE });
   } catch (error) {
     const code = error instanceof Error ? error.message : '';
     if (code === 'AI_MODEL_INVALID') return errorJson('Provider/model tidak valid. Model OpenRouter harus berakhiran :free.', 400);

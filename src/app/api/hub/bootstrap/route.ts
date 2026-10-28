@@ -1,10 +1,3 @@
-import { getHubDb } from '@/server/hub/db/client';
-import { handlePreviewBootstrap } from '@/server/hub/db/bootstrap';
-
-export const runtime = 'nodejs';
-export const dynamic = 'force-dynamic';
-
-/** Only the explicitly enabled webhub Preview can initialize a new, empty DB. */
-export async function POST(request: Request) {
-  return handlePreviewBootstrap(request, { env: process.env, getDb: getHubDb });
-}
+import {NextResponse} from 'next/server';
+export const runtime='nodejs';export const dynamic='force-dynamic';
+export async function POST(){return NextResponse.json({ok:false,error:'Bootstrap ditutup pada versi pascamigrasi ini.'},{status:410,headers:{'Cache-Control':'no-store'}});}
