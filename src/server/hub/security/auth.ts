@@ -64,3 +64,19 @@ export async function logoutOwner(db: Client, token: string | null) {
   if (token && /^[0-9a-f]{64}$/.test(token)) await db.execute({ sql: 'DELETE FROM hub_admin_sessions WHERE token_hash=?', args: [digest(token)] });
 }
 export const sessionTtlSeconds = SESSION_MS / 1000;
+
+/** Re-authenticate, rotate hash, and revoke every session. No secret is logged/returned. */
+export async function changeOwnerPassword(db:Client,current:unknown,next:unknown,now=Date.now()){
+ if(!validPassword(next)||typeof current!=='string'||current===next)return false;
+ if(!await consumeAttempt(db,now))return false;
+ const original=(await db.execute("SELECT salt,password_hash FROM hub_admin_credentials WHERE id='owner'")).rows[0];
+ if(!original||current.length>200)return false;
+ const actual=await derive(current,String(original.salt));
+ if(!/^[0-9a-f]{128}$/.test(String(original.password_hash))||!timingSafeEqual(actual,Buffer.from(String(original.password_hash),'hex')))return false;
+ const salt=randomBytes(16).toString('hex'),hash=(await derive(next,salt)).toString('hex');
+ const tx=await db.transaction('write');try{
+  const r=await tx.execute({sql:"UPDATE hub_admin_credentials SET salt=?,password_hash=? WHERE id='owner' AND password_hash=?",args:[salt,hash,String(original.password_hash)]});
+  if(!r.rowsAffected){await tx.rollback();return false;}
+  await tx.execute('DELETE FROM hub_admin_sessions');await tx.commit();return true;
+ }catch(e){await tx.rollback();throw e;}
+}

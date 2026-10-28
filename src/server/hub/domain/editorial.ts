@@ -77,8 +77,8 @@ export async function acceptSourceItem(db: Client, input: IncomingItem) {
     if (!found) {
       const collisions = (await tx.execute({ sql: 'SELECT id,review_state FROM hub_items WHERE source_id=? AND normalized_original_url=?', args: [sourceId, normalized] })).rows;
       const id = randomUUID(), state = collisions.length ? 'identity_review' : 'pending_review';
-      await tx.execute({ sql: `INSERT INTO hub_items(id,source_id,identity_key,original_url,normalized_original_url,source_title,source_snippet,source_published_at,source_date_raw,first_seen_at,last_seen_at,review_state)
-          VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, args: [id, sourceId, identity, input.url, normalized, title, snippet, published, dateRaw, now, now, state] });
+      await tx.execute({ sql: `INSERT INTO hub_items(id,source_id,identity_key,original_url,normalized_original_url,source_title,source_snippet,source_published_at,source_date_raw,first_seen_at,last_seen_at,review_state,version)
+          VALUES(?,?,?,?,?,?,?,?,?,?,?,?,1)`, args: [id, sourceId, identity, input.url, normalized, title, snippet, published, dateRaw, now, now, state] });
       await tx.execute({ sql: 'INSERT INTO hub_item_observations(id,item_id,fingerprint,observed_at,source_title,source_snippet,original_url,source_published_at,source_date_raw,conflict) VALUES(?,?,?,?,?,?,?,?,?,?)', args: [randomUUID(), id, fingerprint, now, title, snippet, input.url, published, dateRaw, collisions.length ? 1 : 0] });
       for (const collision of collisions) {
         const existingId = String(collision.id);
