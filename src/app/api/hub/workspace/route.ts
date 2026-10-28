@@ -5,12 +5,14 @@ import {getX,getYoutube,syncX,syncYoutube} from '@/server/hub/domain/social';
 import {recommendations} from '@/server/hub/domain/recommendations';
 import {verifyRss,setRssActive,syncRss} from '@/server/hub/domain/rss-runtime';
 import {changeOwnerPassword} from '@/server/hub/security/auth';
+import {accessStatus,workspaceFailure} from '@/server/hub/domain/access-status';
 export const runtime='nodejs';export const dynamic='force-dynamic';export const maxDuration=60;
 function reply(value:unknown){return NextResponse.json(value,{headers:NO_STORE});}
 export async function GET(request:Request){
  const a=await authenticatedDb(request);if(a.error)return a.error;
  const master=process.env.HUB_MIGRATION_MASTER_KEY||process.env.HUB_MASTER_KEY;
  try{switch(new URL(request.url).searchParams.get('kind')){
+  case 'access':return reply(await accessStatus(a.db));
   case 'x':return reply(await getX(a.db,master));
   case 'youtube':return reply(await getYoutube(a.db,master));
   case 'logs':return reply(await logs(a.db,master));
@@ -34,8 +36,8 @@ export async function POST(request:Request){
    return result?reply({ok:true,signInAgain:true}):errorJson('Password saat ini salah, password baru tidak valid, atau batas percobaan tercapai.',400);
   }
   const preferences=await getPreferences(a.db);
-  if(b.action==='syncX'){if(!preferences.allowX)throw Error('ACCESS_NOT_CONFIRMED');return reply(await syncX(a.db));}
-  if(b.action==='syncYoutube'){if(!preferences.allowYoutube)throw Error('ACCESS_NOT_CONFIRMED');return reply(await syncYoutube(a.db));}
+  if(b.action==='syncX'){if(preferences.allowX!==true)throw Error('ACCESS_NOT_CONFIRMED');return reply(await syncX(a.db));}
+  if(b.action==='syncYoutube'){if(preferences.allowYoutube!==true)throw Error('ACCESS_NOT_CONFIRMED');return reply(await syncYoutube(a.db));}
   if(['verifyRss','syncRss','enableRss','disableRss'].includes(String(b.action))){
    if(typeof b.sourceId!=='string'||b.sourceId.length>200)return errorJson('ID sumber tidak valid.',400);
    if(b.action==='disableRss')return reply(await setRssActive(a.db,b.sourceId,false));
@@ -46,7 +48,6 @@ export async function POST(request:Request){
   }
   return errorJson('Aksi tidak dikenal.',400);
  }catch(e){const code=e instanceof Error?e.message:'';
-  const allowed=['JOB_COOLDOWN','ACCESS_NOT_CONFIRMED','ROBOTS_UNAVAILABLE','ROBOTS_BLOCKED','NETWORK_BLOCKED','NETWORK_TIMEOUT','X_ONE_HOUR_UNAVAILABLE','PLAYLIST_UNAVAILABLE','RSS_INVALID','SOURCE_NOT_READY','RESPONSE_TOO_LARGE'];
-  return errorJson(allowed.includes(code)?code:/^HTTP_\d{3}$/.test(code)?code:'Operasi gagal; periksa kesiapan skema/koneksi. Data valid terakhir dipertahankan.',409);
+  return NextResponse.json(workspaceFailure(code),{status:409,headers:NO_STORE});
  }
 }
