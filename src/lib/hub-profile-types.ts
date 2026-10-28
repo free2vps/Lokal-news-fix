@@ -1,6 +1,6 @@
 export type ProfileEvidence={field:'title'|'snippet';term:string;excerpt:string};
 export type ContentProfile={
- schemaVersion:1;method:'rules_v1_not_ai';basis:'public_source_metadata';
+ schemaVersion:1;method:'rules_v1_not_ai'|'rules_v2_not_ai';basis:'public_source_metadata';
  regions:string[];geographyStatus:'inferred'|'national'|'unknown';localImpact:'not_assessed';
  topics:string[];audienceRelevance:{'15-24':number;'25-39':number;'40+':number};audienceStatus:'inferred'|'unknown';
  usefulness:string[];contentGroup:'information'|'entertainment'|'mixed'|'unknown';
