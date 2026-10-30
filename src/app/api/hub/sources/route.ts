@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { addManualSource } from '@/server/hub/domain/sources';
+import { addManualSource, setSourceRights, listSourceRightsLog } from '@/server/hub/domain/sources';
 import { authenticatedDb, errorJson, invalidMutation, NO_STORE, readJson } from '@/server/hub/security/http';
 import audit from '../../../../../docs/official-ntb-source-check.json';
 export const runtime = 'nodejs';
@@ -15,7 +15,7 @@ export async function GET(request: Request) {
       const check = checks.get(String(row.id));
       return { id: String(row.id), name: String(row.name), jurisdiction: String(row.jurisdiction), region: String(row.region), requestedUrl: String(row.requested_url), sourceKind: String(row.source_kind), discoveredType: String(row.discovered_type), feedUrl: row.feed_url ? String(row.feed_url) : null, rightsStatus: String(row.rights_status), active: Number(row.is_active) === 1, itemCount: Number(row.item_count), audit: check ? { checkedAt: check.checkedAt, robots: check.robots?.robots || null, robotsReason: check.robots?.reason || null, pageStatus: check.page?.http || null, pageReason: check.page?.reason || null, feedVerified: check.feed?.ok === true } : null };
     });
-    return NextResponse.json({ ok: true, sources }, { headers: NO_STORE });
+    return NextResponse.json({ ok: true, sources, rightsLog: await listSourceRightsLog(access.db) }, { headers: NO_STORE });
   } catch { return errorJson('Daftar sumber belum dapat dibaca; periksa skema Hub.', 503); }
 }
 export async function POST(request: Request) {
@@ -24,11 +24,18 @@ export async function POST(request: Request) {
   let body: Record<string, unknown>;
   try { body = await readJson(request); } catch { return errorJson('Permintaan tidak valid atau terlalu besar.', 400); }
   try {
+    // Menandai hak sumber adalah keputusan pemilik: butuh konfirmasi teks + sesi owner + CSRF.
+    if (body.action === 'rights') {
+      if (body.confirm !== 'TANDAI HAK SUMBER') return errorJson('Ketik TANDAI HAK SUMBER untuk melanjutkan.', 400);
+      const out = await setSourceRights(access.db, body.id, body.status, 'owner');
+      return NextResponse.json({ ok: true, ...out, log: await listSourceRightsLog(access.db) }, { headers: NO_STORE });
+    }
     const result = await addManualSource(access.db, { name: body.name, jurisdiction: body.jurisdiction, region: body.region, url: body.url, kind: body.kind });
     return NextResponse.json({ ok: true, ...result }, { headers: NO_STORE });
   } catch (error) {
     const code = error instanceof Error ? error.message : '';
     const messages: Record<string, [string, number]> = {
+      RIGHTS_INVALID: ['Status hak tidak dikenal.', 400], SOURCE_NOT_FOUND: ['Sumber tidak ditemukan.', 404],
       SOURCE_INVALID: ['Nama, wilayah, jenis, atau URL tidak valid.', 400], URL_INVALID: ['URL harus HTTPS tanpa kredensial, fragmen, atau alamat lokal literal.', 400], DOMAIN_INVALID: ['Situs pemerintah harus menggunakan domain go.id.', 400], SOURCE_DUPLICATE: ['URL sumber sudah terdaftar.', 409], SOURCE_POSSIBLE_DUPLICATE: ['Domain pemerintah yang sama sudah terdaftar; tinjau sebelum menambahkan.', 409],
     };
     const [message, status] = messages[code] || ['Sumber belum dapat disimpan.', 503]; return errorJson(message, status);

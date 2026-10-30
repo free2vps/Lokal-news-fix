@@ -92,3 +92,33 @@ export async function seedGovernmentSources(db: Client, entries = governmentMani
     return results;
   } catch (error) { await tx.rollback(); throw error; }
 }
+
+/**
+ * Menandai status hak sumber. Ini keputusan pemilik, bukan tebakan sistem:
+ * `permission_confirmed` hanya boleh dipilih bila pemilik sudah memastikan izinnya.
+ * Setiap perubahan dicatat (waktu + pelaku) agar dapat diaudit.
+ */
+export const RIGHTS_STATUSES = ['permission_confirmed', 'metadata_only', 'unknown'] as const;
+export type RightsStatus = (typeof RIGHTS_STATUSES)[number];
+
+export async function setSourceRights(db: Client, id: unknown, status: unknown, actor: string, now = Date.now()) {
+  if (typeof id !== 'string' || !/^[0-9a-fA-F-]{36}$/.test(id)) throw new Error('SOURCE_INVALID');
+  if (!RIGHTS_STATUSES.includes(status as RightsStatus)) throw new Error('RIGHTS_INVALID');
+  const row = (await db.execute({ sql: 'SELECT id,name,source_kind,rights_status,is_active FROM hub_sources WHERE id=?', args: [id] })).rows[0];
+  if (!row) throw new Error('SOURCE_NOT_FOUND');
+  const stamp = new Date(now).toISOString();
+  await db.execute({ sql: 'UPDATE hub_sources SET rights_status=?,updated_at=? WHERE id=?', args: [String(status), stamp, id] });
+  await db.execute(`CREATE TABLE IF NOT EXISTS hub_source_rights_log_v2(
+    id TEXT PRIMARY KEY, source_id TEXT NOT NULL, from_status TEXT, to_status TEXT NOT NULL,
+    actor TEXT NOT NULL, created_at TEXT NOT NULL)`);
+  await db.execute({ sql: 'INSERT INTO hub_source_rights_log_v2(id,source_id,from_status,to_status,actor,created_at) VALUES(?,?,?,?,?,?)',
+    args: [randomUUID(), id, row.rights_status ? String(row.rights_status) : null, String(status), actor.slice(0, 100), stamp] });
+  return { id, name: String(row.name), sourceKind: String(row.source_kind), active: Number(row.is_active) === 1, from: row.rights_status ? String(row.rights_status) : null, to: String(status), at: stamp };
+}
+
+export async function listSourceRightsLog(db: Client, limit = 20) {
+  try {
+    return (await db.execute({ sql: 'SELECT source_id,from_status,to_status,actor,created_at FROM hub_source_rights_log_v2 ORDER BY created_at DESC LIMIT ?', args: [Math.min(50, Math.max(1, limit))] })).rows
+      .map(r => ({ sourceId: String(r.source_id), from: r.from_status ? String(r.from_status) : null, to: String(r.to_status), actor: String(r.actor), at: String(r.created_at) }));
+  } catch { return []; }
+}
