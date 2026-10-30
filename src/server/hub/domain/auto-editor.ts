@@ -83,7 +83,28 @@ export async function prepareAutoEditor(db: Client) {
     pulled INTEGER NOT NULL DEFAULT 0, selected INTEGER NOT NULL DEFAULT 0, published INTEGER NOT NULL DEFAULT 0,
     duration_ms INTEGER NOT NULL, created_at TEXT NOT NULL)`);
   await db.execute("INSERT OR IGNORE INTO hub_auto_editor_config_v2(id,enabled) VALUES('default',0)");
-  return autoEditorStatus(db);
+  return {...await autoEditorStatus(db), dependencies: await prepareDependencies(db)};
+}
+
+/**
+ * Tabel pendukung yang dibutuhkan pipeline. Tanpa tabel nilai, semua berita dianggap "radar"
+ * sehingga kriteria kelas minimum tidak bermakna; tanpa tabel ringkasan, langkah AI dilewati.
+ * Semua bersifat CREATE TABLE IF NOT EXISTS — tidak mengaktifkan apa pun.
+ */
+export async function prepareDependencies(db: Client) {
+  const out: {name: string; ok: boolean; detail: string}[] = [];
+  const steps: [string, () => Promise<unknown>][] = [
+    ['profiles', async () => (await import('./content-profile')).prepareProfiles(db)],
+    ['values', async () => (await import('./editorial-value')).prepareValues(db)],
+    ['summaries', async () => (await import('./ai-summary')).prepareSummarySchema(db)],
+    ['autopublish', async () => (await import('./publish-policy')).preparePublishSchema(db)],
+    ['social', async () => (await import('./social-pull')).prepareSocialSchema(db)],
+  ];
+  for (const [name, fn] of steps) {
+    try { await fn(); out.push({name, ok: true, detail: 'siap'}); }
+    catch (e) { out.push({name, ok: false, detail: (e as Error).message.replace(/[^A-Za-z0-9_]/g, '').slice(0, 40)}); }
+  }
+  return out;
 }
 
 export async function autoEditorReady(db: Client) {
@@ -174,7 +195,8 @@ type Candidate = {
   tier: string; sourceId: string; sourceName: string; rights: string; snippet: string; dateRaw: string | null; priority: boolean;
 };
 
-export type StepResult = {step: string; ok: boolean; detail: string; count?: number};
+export type PullSource = {id: string; name: string; ok: boolean; inserted: number; error?: string};
+export type StepResult = {step: string; ok: boolean; detail: string; count?: number; sources?: PullSource[]};
 export type RunOptions = {
   now?: number; trigger?: string; deliver?: Deliver; master?: string;
   maxSources?: number; budgetMs?: number; skipPull?: boolean;
@@ -184,10 +206,10 @@ export async function runAutoEditor(db: Client, opts: RunOptions = {}) {
   const started = Date.now();
   const now = opts.now ?? started;
   const steps: StepResult[] = [];
-  const push = (step: string, ok: boolean, detail: string, count?: number) => steps.push({step, ok, detail, count});
+  const push = (step: string, ok: boolean, detail: string, count?: number) => { steps.push({step, ok, detail, count} as StepResult); };
   const cfg = await readAutoConfig(db);
   if (!cfg.enabled) {
-    return {status: 'disabled', runAt: new Date(now).toISOString(), durationMs: 0, steps: [{step: 'switch', ok: true, detail: 'Redaktur otomatis NONAKTIF — tidak ada yang ditarik, tidak ada yang terbit', count: 0}],
+    return {status: 'disabled', runAt: new Date(now).toISOString(), durationMs: 0, steps: [{step: 'switch', ok: true, detail: 'Redaktur otomatis NONAKTIF — tidak ada yang ditarik, tidak ada yang terbit', count: 0}] as StepResult[],
       pulled: 0, candidates: 0, selected: 0, published: 0, duplicates: 0, failed: 0, reasons: {} as Record<string, number>, config: cfg, approvalRemainsHuman: false, autoPublication: true};
   }
 
@@ -196,18 +218,29 @@ export async function runAutoEditor(db: Client, opts: RunOptions = {}) {
   if (!opts.skipPull) {
     const budget = opts.budgetMs ?? AUTO_EDITOR_POLICY.budgetMs;
     try {
-      const sources = (await db.execute({sql: "SELECT id,rights_status FROM hub_sources WHERE source_kind='rss' AND is_active=1 AND discovered_type='rss' AND feed_url IS NOT NULL AND rights_status!='unknown' ORDER BY updated_at DESC", args: []})).rows;
+      const sources = (await db.execute({sql: "SELECT id,name,rights_status FROM hub_sources WHERE source_kind='rss' AND is_active=1 AND discovered_type='rss' AND feed_url IS NOT NULL AND rights_status!='unknown' ORDER BY updated_at DESC", args: []})).rows;
       const limit = clamp(opts.maxSources, 1, 60, AUTO_EDITOR_POLICY.rssSourcesPerRun);
       let ok = 0, fail = 0, scanned = 0;
+      const perSource: PullSource[] = [];
       for (const s of sources.slice(0, limit)) {
         if (Date.now() - started > budget) break;
         scanned += 1;
-        try { const r = await syncRss(db, String(s.id)); pulled += Number((r as {count?: number})?.count || 0); ok += 1; }
-        catch { fail += 1; }
+        try {
+          const r = await syncRss(db, String(s.id));
+          const inserted = Number((r as {count?: number})?.count || 0);
+          pulled += inserted; ok += 1;
+          perSource.push({id: String(s.id), name: String(s.name || ''), ok: true, inserted});
+        } catch (e) {
+          fail += 1;
+          const code = (e instanceof Error ? e.message : '').replace(/[^A-Z0-9_]/g, '').slice(0, 40) || 'RSS_ERROR';
+          perSource.push({id: String(s.id), name: String(s.name || ''), ok: false, inserted: 0, error: code});
+        }
       }
-      push('pull', true, sources.length
-        ? `${scanned}/${sources.length} sumber diperiksa, ${pulled} berita baru${fail ? `, ${fail} gagal` : ''}`
-        : 'Belum ada sumber RSS aktif dengan hak yang jelas — tidak ada yang ditarik', pulled);
+      const zero = perSource.filter(x => x.ok && x.inserted === 0).length;
+      const detail = sources.length
+        ? `${scanned}/${sources.length} sumber diperiksa, ${pulled} berita baru${zero ? `, ${zero} tanpa berita baru` : ''}${fail ? `, ${fail} gagal` : ''}`
+        : 'Belum ada sumber RSS aktif dengan hak yang jelas — tidak ada yang ditarik';
+      steps.push({step: 'pull', ok: true, detail, count: pulled, sources: perSource});
     } catch { push('pull', false, 'Gagal membaca daftar sumber', 0); }
   }
 

@@ -228,6 +228,42 @@ test('redaktur otomatis: kegagalan pengiriman dicatat, tidak mengklaim terbit', 
   } finally { await db.close(); }
 });
 
+test('redaktur otomatis: menyiapkan tabel pendukung agar nilai/ringkasan tidak lagi "belum disiapkan"', async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'autoed-dep-'));
+  const db = createClient({url: 'file:' + path.join(dir, 'd.db')});
+  try {
+    await db.executeMultiple(readFileSync('db/hub-migrations/001_initial.sql', 'utf8'));
+    const out = await prepareAutoEditor(db);
+    assert.ok(Array.isArray(out.dependencies));
+    for (const name of ['profiles', 'values', 'summaries', 'autopublish', 'social']) {
+      const row = out.dependencies.find(d => d.name === name);
+      assert.ok(row, `dependensi ${name} dilaporkan`);
+      assert.equal(row!.ok, true, `dependensi ${name} siap`);
+    }
+    const tables = (await db.execute("SELECT name FROM sqlite_master WHERE type='table'")).rows.map(r => String(r.name));
+    for (const t of ['hub_editorial_value_v2', 'hub_ai_summaries_v2', 'hub_content_profiles_v2', 'hub_autopublish_v2', 'hub_social_queue_v2']) {
+      assert.ok(tables.includes(t), `tabel ${t} dibuat`);
+    }
+  } finally { await db.close(); try { rmSync(dir, {recursive: true, force: true}); } catch {} }
+});
+
+test('redaktur otomatis: langkah tarik melaporkan alasan per sumber (bukan sekadar "0 berita")', async () => {
+  const {db} = await fixture();
+  try {
+    // Sumber kedua dengan feed yang tidak bisa diakses: harus muncul sebagai gagal + kode alasan.
+    await db.execute({sql: "INSERT INTO hub_sources(id,name,jurisdiction,region,requested_url,normalized_url,publisher_domain,source_kind,rights_status,is_active,discovered_type,feed_url,created_at,updated_at) VALUES('66666666-6666-6666-6666-666666666666','media-mati','Provinsi','NTB','https://127.0.0.1.example.org','https://127.0.0.1.example.org','127.0.0.1.example.org','rss','permission_confirmed',1,'rss','https://localhost/feed','2026-10-30','2026-10-30')", args: []});
+    await saveAutoConfig(db, {minTier: 'radar', aiPerRun: 0}, 'owner', NOW);
+    await setAutoEditor(db, true, 'AKTIFKAN REDAKTUR OTOMATIS', 'owner', NOW);
+    const out = await runAutoEditor(db, {now: NOW, deliver: okDeliver()});
+    const pull = out.steps.find(s => s.step === 'pull')!;
+    assert.ok(Array.isArray(pull.sources) && pull.sources.length >= 1, 'ada rincian per sumber');
+    const bad = pull.sources!.find(x => x.id === '66666666-6666-6666-6666-666666666666');
+    assert.ok(bad && bad.ok === false, 'sumber bermasalah dilaporkan gagal');
+    assert.ok(String(bad!.error).length > 0, 'kode alasan diisi, bukan kosong');
+    assert.match(String(pull.detail), /gagal/);
+  } finally { await db.close(); }
+});
+
 test('redaktur otomatis: status menampilkan kesiapan hak sumber (blokir nyata saat ini)', async () => {
   const {db, add} = await fixture();
   try {

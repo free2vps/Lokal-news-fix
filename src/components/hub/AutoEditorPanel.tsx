@@ -1,7 +1,7 @@
 'use client';
 import {useCallback,useEffect,useState} from 'react';
 
-type Step={step:string;ok:boolean;detail:string;count?:number};
+type Step={step:string;ok:boolean;detail:string;count?:number;sources?:{id:string;name:string;ok:boolean;inserted:number;error?:string}[]};
 type Run={trigger:string;status:string;pulled:number;selected:number;published:number;durationMs:number;at:string;steps:Step[]};
 type Status={
   ready:boolean;
@@ -46,14 +46,14 @@ export default function AutoEditorPanel({initialStatus}:{initialStatus?:Status})
 
   return <section aria-label="Redaktur otomatis" className="space-y-3">
     <h2>Redaktur Otomatis <span className="tiny">(Tahap 10)</span></h2>
-    <p className="tiny">Satu alur: tarik RSS → saring → ringkasan + poin penting → nilai → pilih → terbit. Ringkasan ekstraktif (gratis) untuk semua berita; AI hanya untuk prioritas Bali/NTB/NTT sesuai kuota.</p>
+    <p className="tiny">Rujukan: menu <b>RSS Manager</b> untuk mengaktifkan sumber &amp; menandai hak pakai. Di sini: satu alur tarik RSS → saring → ringkasan + poin penting → nilai → pilih → terbit. Ringkasan ekstraktif (gratis) untuk semua berita; AI hanya untuk prioritas Bali/NTB/NTT sesuai kuota.</p>
 
     <div className="notice" role="status">
       <p><b>Status: {on?'AKTIF — terbit otomatis':'NONAKTIF'}</b> · Terbit hari ini: {st?.publishedToday??0}/{st?.config.maxPerDay??0} · Maks/putaran: {st?.config.maxPerRun??0}</p>
       <p className="tiny">Kriteria: kelas ≥ {st?.config.minTier??'curated'} · umur ≤ {st?.config.windowHours??48} jam · wilayah {st?.config.regions?.join(', ')||'Bali, NTB, NTT'}</p>
     </div>
 
-    {!ready&&<div className="form-actions"><button className="button" disabled={busy} onClick={()=>void act(()=>api({action:'prepare',confirm:'PREPARE AUTO EDITOR'}),'Tabel siap. Redaktur masih nonaktif.')}>Siapkan tabel redaktur otomatis</button></div>}
+    {!ready&&<div className="form-actions"><button className="button" disabled={busy} onClick={()=>void act(()=>api({action:'prepare',confirm:'PREPARE AUTO EDITOR'}),'Tabel redaktur + tabel pendukung (profil, nilai, ringkasan, autopublish, antrean sosial) siap. Redaktur masih nonaktif.')}>Siapkan tabel redaktur otomatis</button></div>}
 
     {ready&&<>
       {noRights&&<p className="notice error" role="alert">Belum ada sumber berstatus <b>permission_confirmed</b> yang aktif ({st?.sources?.metadataOnly??0} sumber berstatus metadata_only). Dengan setelan bawaan, redaktur tidak akan menerbitkan apa pun. Tandai hak sumber lebih dulu — atau ubah ke mode headline di bagian Lanjutan (risiko hak cipta ditanggung pemilik).</p>}
@@ -66,7 +66,9 @@ export default function AutoEditorPanel({initialStatus}:{initialStatus?:Status})
 
       {last&&<div className="notice">
         <p><b>Putaran terakhir:</b> {last.status} · ditarik {last.pulled} · dipilih {last.selected} · terbit {last.published} · {Math.round(last.durationMs/1000)}s</p>
-        <ol className="tiny">{last.steps.map((s,i)=><li key={i}>{s.ok?'✔':'✖'} {s.step}: {s.detail}</li>)}</ol>
+        <ol className="tiny">{last.steps.map((s,i)=><li key={i}>{s.ok?'✔':'✖'} {s.step}: {s.detail}
+          {!!s.sources?.length&&<ul>{s.sources.map(x=><li key={x.id}>{x.ok?'•':'✖'} {x.name}: {x.ok?`${x.inserted} berita baru`:`gagal (${x.error})`}</li>)}</ul>}
+        </li>)}</ol>
       </div>}
 
       {!!st?.runs?.length&&<table><thead><tr><th>Waktu</th><th>Pemicu</th><th>Status</th><th>Ditarik</th><th>Dipilih</th><th>Terbit</th></tr></thead>
