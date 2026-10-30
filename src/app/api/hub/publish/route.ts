@@ -1,6 +1,6 @@
 import {NextResponse} from 'next/server';
 import {authenticatedDb,errorJson,invalidMutation,NO_STORE,readJson} from '@/server/hub/security/http';
-import {preparePublishSchema,readConfig,buildPlan,dryRun,arm,disarm,publishArmed,publishStatus,updateConfig,PUBLISH_POLICY} from '@/server/hub/domain/publish-policy';
+import {preparePublishSchema,readConfig,buildPlan,dryRun,arm,disarm,publishArmed,publishStatus,updateConfig,setSchedule,PUBLISH_POLICY} from '@/server/hub/domain/publish-policy';
 import {supabaseDeliver} from '@/server/hub/domain/publish-delivery';
 
 export const runtime='nodejs';export const dynamic='force-dynamic';export const maxDuration=60;
@@ -48,6 +48,7 @@ export async function POST(request:Request){
       if(b.confirm!=='PUBLISH NOW')return errorJson('Konfirmasi diperlukan.',400);
       return reply(await publishArmed(a.db,actor,supabaseDeliver()));
     }
+    if(b.action==='setSchedule'){return reply(await setSchedule(a.db,b.enable===true,b.confirm,actor));}
     if(b.action==='config'){return reply(await readConfig(a.db));}
     return errorJson('Aksi tidak dikenal.',400);
   }catch(e){return errorJson(msg(e),409);}

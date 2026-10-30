@@ -1,4 +1,6 @@
+import {createHash} from 'node:crypto';
 import {mapHubArticle} from '@/lib/content-hub/mapping';
+import {slugify} from '@/lib/utils';
 import type {Deliver, DeliveryResult} from './publish-policy';
 
 /**
@@ -8,6 +10,15 @@ import type {Deliver, DeliveryResult} from './publish-policy';
  * Tanpa kredensial, tidak ada permintaan jaringan yang dibuat.
  */
 export const DELIVERY_ENV = {url: 'HUB_WEBSITE_SUPABASE_URL', key: 'HUB_WEBSITE_SERVICE_ROLE_KEY'} as const;
+
+/** Slug artikel situs, dihitung sama seperti mapping artikel (tanpa syarat kesegaran tanggal). */
+export function articleSlug(snapshot: Record<string, unknown>) {
+  const title = String(snapshot.editorialTitle || snapshot.sourceTitle || '').slice(0, 500);
+  const url = String(snapshot.originalUrl || '');
+  if (!title.trim() || !url) return null;
+  try { new URL(url); } catch { return null; }
+  return `${slugify(title).slice(0, 70)}-hub-${createHash('sha256').update(url).digest('hex').slice(0, 12)}`;
+}
 
 export function articleRow(snapshot: Record<string, unknown>) {
   const title = String(snapshot.editorialTitle || snapshot.sourceTitle || '');

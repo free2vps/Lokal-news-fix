@@ -1,0 +1,201 @@
+{
+  "name": "Content Hub — tarik 4 berita, posting Facebook Page",
+  "flow": [
+    {
+      "id": 1,
+      "module": "http:ActionSendData",
+      "version": 3,
+      "parameters": {
+        "handleErrors": false,
+        "useNewZLibCompression": false,
+        "url": "https://lokal-news-fix-ujsf-64ay9i2fr-free2vps.vercel.app/api/hub/social?action=pull&max=4",
+        "method": "get",
+        "headers": [
+          {
+            "name": "Authorization",
+            "value": "Bearer GANTI_TOKEN_SOSIAL"
+          },
+          {
+            "name": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "qs": [],
+        "bodyType": "raw",
+        "parseResponse": true,
+        "authUser": null,
+        "authPass": null,
+        "timeout": "",
+        "shareCookies": false,
+        "ca": "",
+        "rejectUnauthorized": true,
+        "followRedirect": true,
+        "useQuerystring": false,
+        "gzip": true,
+        "useMtls": false,
+        "contentType": "application/json",
+        "serializeUrl": false,
+        "data": "",
+        "escapeData": false,
+        "outputIntoBundle": false
+      },
+      "mapper": {},
+      "metadata": {
+        "designer": {
+          "x": 300,
+          "y": 0
+        },
+        "parameters": [
+          {
+            "name": "url",
+            "type": "text"
+          }
+        ]
+      },
+      "name": "Tarik maks 4 berita"
+    },
+    {
+      "id": 2,
+      "module": "builtin:BasicFeeder",
+      "version": 1,
+      "parameters": {},
+      "mapper": {
+        "array": "{{1.body.items}}"
+      },
+      "metadata": {
+        "designer": {
+          "x": 600,
+          "y": 0
+        },
+        "restore": {
+          "flow": {
+            "id": 1,
+            "label": null
+          }
+        },
+        "parameters": [
+          {
+            "name": "array",
+            "type": "array"
+          }
+        ]
+      },
+      "name": "Iterasi berita"
+    },
+    {
+      "id": 3,
+      "module": "facebook-pages:ActionCreatePost",
+      "version": 4,
+      "parameters": {
+        "account": "",
+        "message": "{{2.title}}\n\n{{2.summary}}\n\n{{2.articleUrl}}",
+        "link": "{{2.articleUrl}}",
+        "handleErrors": false
+      },
+      "mapper": {},
+      "metadata": {
+        "designer": {
+          "x": 900,
+          "y": 0
+        },
+        "restore": {
+          "flow": {
+            "id": 2,
+            "label": null
+          }
+        },
+        "parameters": [
+          {
+            "name": "message",
+            "type": "text"
+          }
+        ]
+      },
+      "name": "Posting ke Facebook Page"
+    },
+    {
+      "id": 4,
+      "module": "http:ActionSendData",
+      "version": 3,
+      "parameters": {
+        "handleErrors": false,
+        "useNewZLibCompression": false,
+        "url": "https://lokal-news-fix-ujsf-64ay9i2fr-free2vps.vercel.app/api/hub/social?action=ack",
+        "method": "post",
+        "headers": [
+          {
+            "name": "Authorization",
+            "value": "Bearer GANTI_TOKEN_SOSIAL"
+          },
+          {
+            "name": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "qs": [],
+        "bodyType": "raw",
+        "parseResponse": true,
+        "authUser": null,
+        "authPass": null,
+        "timeout": "",
+        "shareCookies": false,
+        "ca": "",
+        "rejectUnauthorized": true,
+        "followRedirect": true,
+        "useQuerystring": false,
+        "gzip": true,
+        "useMtls": false,
+        "contentType": "application/json",
+        "serializeUrl": false,
+        "data": "[{\"deliveryKey\":\"{{2.deliveryKey}}\",\"ok\":true}]",
+        "escapeData": false,
+        "outputIntoBundle": false
+      },
+      "mapper": {},
+      "metadata": {
+        "designer": {
+          "x": 1200,
+          "y": 0
+        },
+        "parameters": [
+          {
+            "name": "url",
+            "type": "text"
+          }
+        ],
+        "restore": {
+          "flow": {
+            "id": 3,
+            "label": null
+          }
+        }
+      },
+      "name": "Konfirmasi (ack)"
+    }
+  ],
+  "metadata": {
+    "instant": false,
+    "version": 1,
+    "scenario": {
+      "roundtrips": 1,
+      "maxErrors": 3,
+      "autoCommit": true,
+      "autoCommitTriggerLast": true,
+      "sequential": true,
+      "confidential": true,
+      "dataloss": false,
+      "dlq": false,
+      "freshVariables": false
+    },
+    "designer": {
+      "orphans": []
+    },
+    "zone": "eu1.make.com",
+    "notes": [],
+    "scheduling": {
+      "type": "indefinitely",
+      "interval": 10800
+    },
+    "description": "Menarik maksimal 4 artikel terbit dari Hub, memposting ke Facebook Page, lalu mengakui tiap item agar tidak dikirim ulang."
+  }
+}

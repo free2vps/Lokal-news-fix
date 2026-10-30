@@ -45,6 +45,7 @@ export const PUBLISH_POLICY = {
 
 export type PublishConfig = {
   enabled: boolean; mode: 'dry_run' | 'live';
+  scheduleEnabled: boolean; maxPerRun: number;
   allowRegions: string[]; allowSourceIds: string[]; allowCategories: string[];
   minValueTier: 'radar' | 'curated' | 'evidence_backed';
   dailyMax: number; windowHours: number;
@@ -52,7 +53,7 @@ export type PublishConfig = {
   updatedAt: string | null; updatedBy: string | null;
 };
 export const DEFAULT_CONFIG: PublishConfig = {
-  enabled: false, mode: 'dry_run', allowRegions: ['Bali', 'NTB', 'NTT'], allowSourceIds: [], allowCategories: [],
+  enabled: false, mode: 'dry_run', scheduleEnabled: false, maxPerRun: 4, allowRegions: ['Bali', 'NTB', 'NTT'], allowSourceIds: [], allowCategories: [],
   minValueTier: 'curated', dailyMax: PUBLISH_POLICY.defaultDailyMax, windowHours: 72,
   armedUntil: null, armedPlanHash: null, updatedAt: null, updatedBy: null,
 };
@@ -80,6 +81,10 @@ export async function preparePublishSchema(db: Client) {
       armed_until INTEGER, armed_plan_hash TEXT, updated_at TEXT NOT NULL, updated_by TEXT NOT NULL)`);
     await tx.execute({sql:`INSERT OR IGNORE INTO hub_autopublish_v2(id,enabled,mode,allow_regions,allow_source_ids,allow_categories,min_value_tier,daily_max,window_hours,updated_at,updated_by)
       VALUES('owner',0,'dry_run',?,?,?,?,?,?,?,?)`, args: [JSON.stringify(DEFAULT_CONFIG.allowRegions), JSON.stringify([]), JSON.stringify([]), DEFAULT_CONFIG.minValueTier, DEFAULT_CONFIG.dailyMax, DEFAULT_CONFIG.windowHours, new Date().toISOString(), 'init']});
+    for (const sql of [
+      'ALTER TABLE hub_autopublish_v2 ADD COLUMN schedule_enabled INTEGER NOT NULL DEFAULT 0',
+      'ALTER TABLE hub_autopublish_v2 ADD COLUMN max_per_run INTEGER NOT NULL DEFAULT 4',
+    ]) { try { await tx.execute(sql); } catch { /* kolom sudah ada */ } }
     await tx.execute(`CREATE TABLE IF NOT EXISTS hub_publish_runs_v2(
       id TEXT PRIMARY KEY, mode TEXT NOT NULL, plan_hash TEXT NOT NULL, eligible INTEGER NOT NULL,
       excluded INTEGER NOT NULL, reasons_json TEXT NOT NULL, actor TEXT NOT NULL, created_at TEXT NOT NULL, expires_at INTEGER NOT NULL)`);
@@ -98,6 +103,7 @@ export async function readConfig(db: Client): Promise<PublishConfig> {
   if (!r) return {...DEFAULT_CONFIG};
   return {
     enabled: Number(r.enabled) === 1, mode: String(r.mode) === 'live' ? 'live' : 'dry_run',
+    scheduleEnabled: Number(r.schedule_enabled) === 1, maxPerRun: Number(r.max_per_run) || 4,
     allowRegions: parse(r.allow_regions) || [], allowSourceIds: parse(r.allow_source_ids) || [], allowCategories: parse(r.allow_categories) || [],
     minValueTier: (String(r.min_value_tier) as PublishConfig['minValueTier']) || 'curated',
     dailyMax: Number(r.daily_max), windowHours: Number(r.window_hours),
@@ -127,14 +133,14 @@ export async function updateConfig(db: Client, input: Record<string, unknown>, a
   const windowHours = input.windowHours === undefined ? undefined : Number(input.windowHours);
   if (windowHours !== undefined && (!Number.isInteger(windowHours) || windowHours < 1 || windowHours > 168)) throw Error('PUBLISH_CONFIG_INVALID');
   const next: PublishConfig = {
-    ...current, enabled: false, mode: 'dry_run', armedUntil: null, armedPlanHash: null,
+    ...current, enabled: false, mode: 'dry_run', armedUntil: null, armedPlanHash: null, scheduleEnabled: false,
     allowRegions: regions ?? current.allowRegions, allowSourceIds: sources ?? current.allowSourceIds, allowCategories: categories ?? current.allowCategories,
     minValueTier: (tier as PublishConfig['minValueTier']) ?? current.minValueTier, dailyMax: dailyMax ?? current.dailyMax, windowHours: windowHours ?? current.windowHours,
     updatedAt: new Date().toISOString(), updatedBy: actor.slice(0, 100),
   };
-  await db.execute({sql: `UPDATE hub_autopublish_v2 SET enabled=0,mode='dry_run',allow_regions=?,allow_source_ids=?,allow_categories=?,min_value_tier=?,daily_max=?,window_hours=?,armed_until=NULL,armed_plan_hash=NULL,updated_at=?,updated_by=? WHERE id='owner'`,
+  await db.execute({sql: `UPDATE hub_autopublish_v2 SET enabled=0,mode='dry_run',schedule_enabled=0,allow_regions=?,allow_source_ids=?,allow_categories=?,min_value_tier=?,daily_max=?,window_hours=?,armed_until=NULL,armed_plan_hash=NULL,updated_at=?,updated_by=? WHERE id='owner'`,
     args: [JSON.stringify(next.allowRegions), JSON.stringify(next.allowSourceIds), JSON.stringify(next.allowCategories), next.minValueTier, next.dailyMax, next.windowHours, next.updatedAt, next.updatedBy]});
-  return {config: await readConfig(db), disarmed: true, note: 'Perubahan konfigurasi otomatis melucuti izin; jalankan dry-run lalu arm ulang.'};
+  return {config: await readConfig(db), disarmed: true, scheduleDisabled: true, note: 'Perubahan konfigurasi melucuti izin sekali-pakai DAN mematikan terbit terjadwal; jalankan dry-run lalu aktifkan ulang.'};
 }
 
 export type PlanItem = {id: string; version: number; title: string; sourceId: string; sourceName: string; regions: string[]; tier: string; publishedAt: string};
@@ -288,6 +294,60 @@ export async function publishArmed(db: Client, actor: string, deliver: Deliver =
   await disarm(db, 'system:single_use', now);
 
   return {published: result.published.length, duplicates: result.duplicates.length, failed: result.failed.length, target: result.target, disarmed: true, claimed: claimed.length, note: 'Izin otomatis dicabut setelah satu kali jalan. Beranda/layout tidak diubah oleh proses ini.'};
+}
+
+/** Terbit terjadwal 3 jam: izin persisten, hanya untuk artikel yang SUDAH disetujui manusia. */
+export async function setSchedule(db: Client, enable: unknown, confirm: unknown, actor: string, now = Date.now()) {
+  if (!(await publishReady(db))) throw Error('PUBLISH_NOT_READY');
+  const on = enable === true;
+  if (on && confirm !== 'ENABLE SCHEDULE 3H') throw Error('PUBLISH_CONFIRM_REQUIRED');
+  const cfg = await readConfig(db);
+  if (on && !cfg.allowSourceIds.length) throw Error('PUBLISH_ALLOWLIST_EMPTY');
+  await db.execute({sql: "UPDATE hub_autopublish_v2 SET schedule_enabled=?,max_per_run=?,updated_at=?,updated_by=? WHERE id='owner'",
+    args: [on ? 1 : 0, Math.min(4, Math.max(1, cfg.maxPerRun)), new Date(now).toISOString(), actor.slice(0, 100)]});
+  return {scheduleEnabled: on, maxPerRun: Math.min(4, Math.max(1, cfg.maxPerRun)),
+    note: on
+      ? 'Terbit terjadwal aktif maksimal 4 artikel/putaran dan hanya untuk artikel yang sudah disetujui + lolos semua gerbang. Persetujuan tetap manual.'
+      : 'Terbit terjadwal dimatikan.'};
+}
+
+export async function publishScheduled(db: Client, actor: string, deliver: Deliver = defaultDeliver(), now = Date.now()) {
+  if (!(await publishReady(db))) throw Error('PUBLISH_NOT_READY');
+  const cfg = await readConfig(db);
+  if (!cfg.scheduleEnabled) return {published: 0, duplicates: 0, failed: 0, skipped: true, reason: 'schedule_disabled', target: 'none'};
+  if (!cfg.allowSourceIds.length) return {published: 0, duplicates: 0, failed: 0, skipped: true, reason: 'allowlist_empty', target: 'none'};
+  if (!targetConfigured() && (deliver as Deliver & {builtin?: boolean}).builtin === true) return {published: 0, duplicates: 0, failed: 0, skipped: true, reason: 'target_not_configured', target: 'none'};
+  const plan = await buildPlan(db, now);
+  if (!plan.items.length) return {published: 0, duplicates: 0, failed: 0, skipped: true, reason: 'no_eligible', target: 'none'};
+  const items = plan.items.slice(0, Math.min(4, Math.max(1, cfg.maxPerRun)));
+  const snapshots = new Map<string, Record<string, unknown>>();
+  for (const item of items) {
+    const row = (await db.execute({sql: 'SELECT snapshot_json FROM hub_item_approvals WHERE item_id=? AND version=?', args: [item.id, item.version]})).rows[0];
+    if (!row?.snapshot_json) return {published: 0, duplicates: 0, failed: 0, skipped: true, reason: 'approval_missing', target: 'none'};
+    snapshots.set(item.id, JSON.parse(String(row.snapshot_json)));
+  }
+  const claimed: string[] = [];
+  for (const item of items) {
+    const key = createHash('sha256').update(`scheduled:${item.id}:${item.version}`).digest('hex');
+    const ins = await db.execute({sql: "INSERT INTO hub_publish_outbox(id,idempotency_key,item_id,approved_version,snapshot_json,status,created_at) VALUES(?,?,?,?,?,'sending',?) ON CONFLICT(idempotency_key) DO NOTHING",
+      args: [randomUUID(), key, item.id, item.version, JSON.stringify(snapshots.get(item.id)), new Date(now).toISOString()]});
+    if (ins.rowsAffected) claimed.push(item.id);
+  }
+  let result: DeliveryResult;
+  try { result = await deliver(items.filter(i => claimed.includes(i.id)).map(i => ({id: i.id, version: i.version, snapshot: snapshots.get(i.id)!}))); }
+  catch (e) {
+    const code = (e instanceof Error ? e.message : '').replace(/[^A-Z0-9_]/g, '').slice(0, 60) || 'PUBLISH_DELIVERY_FAILED';
+    for (const id of claimed) await db.execute({sql: "UPDATE hub_publish_outbox SET status='failed' WHERE item_id=? AND status='sending'", args: [id]}).catch(() => {});
+    await db.execute({sql: 'INSERT INTO hub_publish_runs_v2(id,mode,plan_hash,eligible,excluded,reasons_json,actor,created_at,expires_at) VALUES(?,?,?,?,?,?,?,?,?)',
+      args: [randomUUID(), 'scheduled', plan.planHash, 0, items.length, JSON.stringify({delivery_error: 1}), actor.slice(0, 100), new Date(now).toISOString(), now + 60000]});
+    return {published: 0, duplicates: 0, failed: claimed.length, skipped: false, reason: code, target: 'none'};
+  }
+  for (const id of result.published) await db.execute({sql: "UPDATE hub_publish_outbox SET status='published' WHERE item_id=? AND status='sending'", args: [id]});
+  for (const id of result.duplicates) await db.execute({sql: "UPDATE hub_publish_outbox SET status='duplicate' WHERE item_id=? AND status='sending'", args: [id]});
+  for (const f of result.failed) await db.execute({sql: "UPDATE hub_publish_outbox SET status='failed' WHERE item_id=? AND status='sending'", args: [f.id]});
+  await db.execute({sql: 'INSERT INTO hub_publish_runs_v2(id,mode,plan_hash,eligible,excluded,reasons_json,actor,created_at,expires_at) VALUES(?,?,?,?,?,?,?,?,?)',
+    args: [randomUUID(), 'scheduled', plan.planHash, result.published.length, plan.excluded, JSON.stringify(plan.reasons), actor.slice(0, 100), new Date(now).toISOString(), now + 60000]});
+  return {published: result.published.length, duplicates: result.duplicates.length, failed: result.failed.length, skipped: false, reason: null, target: result.target, maxPerRun: items.length};
 }
 
 export async function publishStatus(db: Client) {
