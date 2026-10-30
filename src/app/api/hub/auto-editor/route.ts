@@ -3,6 +3,7 @@ import {authenticatedDb,errorJson,invalidMutation,NO_STORE,readJson} from '@/ser
 import {getHubDb} from '@/server/hub/db/client';
 import {verifyAutomationToken} from '@/server/hub/domain/automation';
 import {prepareAutoEditor,saveAutoConfig,setAutoEditor,setRightsMode,autoEditorStatus,runAutoEditor,AUTO_EDITOR_POLICY} from '@/server/hub/domain/auto-editor';
+import {quickSetup,quickStatus,QUICK_SETUP_CONFIRM} from '@/server/hub/domain/quick-setup';
 
 export const runtime='nodejs';export const dynamic='force-dynamic';export const maxDuration=60;
 const reply=(value:unknown)=>NextResponse.json(value,{headers:NO_STORE});
@@ -15,7 +16,7 @@ const previewOk=()=>process.env.VERCEL_ENV==='preview'&&process.env.VERCEL_GIT_C
 
 export async function GET(request:Request){
   const a=await authenticatedDb(request);if(a.error)return a.error;
-  try{return reply({...await autoEditorStatus(a.db),policy:{...AUTO_EDITOR_POLICY}});}catch{return errorJson('Status redaktur otomatis belum dapat dibaca.',503);}
+  try{return reply({...await autoEditorStatus(a.db),quick:await quickStatus(a.db).catch(()=>null),policy:{...AUTO_EDITOR_POLICY}});}catch{return errorJson('Status redaktur otomatis belum dapat dibaca.',503);}
 }
 
 export async function POST(request:Request){
@@ -36,6 +37,7 @@ export async function POST(request:Request){
   if(!previewOk())return errorJson('Redaktur otomatis dibatasi Preview webhub.',403);
   try{
     const b=await readJson(request);
+    if(b.action==='quickSetup'){return reply(await quickSetup(a.db,{rights:b.rights,enable:b.enable,issueTokens:b.issueTokens,minTier:b.minTier,windowHours:b.windowHours,actor:'owner',confirm:b.confirm}));}
     if(b.action==='prepare'){if(b.confirm!=='PREPARE AUTO EDITOR')return errorJson('Konfirmasi diperlukan.',400);return reply(await prepareAutoEditor(a.db));}
     if(b.action==='config'){if(b.confirm!=='SIMPAN KONFIGURASI EDITOR')return errorJson('Konfirmasi diperlukan.',400);return reply({config:await saveAutoConfig(a.db,(b.config||{}) as Record<string,unknown>,'owner')});}
     if(b.action==='enable'||b.action==='disable'){return reply({config:await setAutoEditor(a.db,b.action==='enable',b.confirm,'owner')});}
