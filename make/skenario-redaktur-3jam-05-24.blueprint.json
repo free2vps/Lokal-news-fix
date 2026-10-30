@@ -1,0 +1,242 @@
+{
+  "name": "Content Hub — Redaktur otomatis 3 jam (05:00–23:59)",
+  "flow": [
+    {
+      "id": 1,
+      "module": "http:ActionSendData",
+      "version": 3,
+      "parameters": {
+        "handleErrors": false,
+        "useNewZLibCompression": false,
+        "url": "https://lokal-news-fix-ujsf-64ay9i2fr-free2vps.vercel.app/api/hub/auto-editor?action=run",
+        "method": "post",
+        "headers": [
+          {
+            "name": "Authorization",
+            "value": "Bearer GANTI_TOKEN_OTOMASI"
+          },
+          {
+            "name": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "qs": [],
+        "bodyType": "raw",
+        "parseResponse": true,
+        "authUser": null,
+        "authPass": null,
+        "timeout": "",
+        "shareCookies": false,
+        "ca": "",
+        "rejectUnauthorized": true,
+        "followRedirect": true,
+        "useQuerystring": false,
+        "gzip": true,
+        "useMtls": false,
+        "contentType": "application/json",
+        "serializeUrl": false,
+        "data": "",
+        "escapeData": false,
+        "outputIntoBundle": false
+      },
+      "mapper": {},
+      "metadata": {
+        "designer": {
+          "x": 300,
+          "y": 0
+        }
+      },
+      "name": "1. Redaktur otomatis (tarik → olah → terbit)"
+    },
+    {
+      "id": 2,
+      "module": "http:ActionSendData",
+      "version": 3,
+      "parameters": {
+        "handleErrors": false,
+        "useNewZLibCompression": false,
+        "url": "https://lokal-news-fix-ujsf-64ay9i2fr-free2vps.vercel.app/api/hub/social?action=pull&max=4",
+        "method": "get",
+        "headers": [
+          {
+            "name": "Authorization",
+            "value": "Bearer GANTI_TOKEN_SOSIAL"
+          },
+          {
+            "name": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "qs": [],
+        "bodyType": "raw",
+        "parseResponse": true,
+        "authUser": null,
+        "authPass": null,
+        "timeout": "",
+        "shareCookies": false,
+        "ca": "",
+        "rejectUnauthorized": true,
+        "followRedirect": true,
+        "useQuerystring": false,
+        "gzip": true,
+        "useMtls": false,
+        "contentType": "application/json",
+        "serializeUrl": false,
+        "data": "",
+        "escapeData": false,
+        "outputIntoBundle": false
+      },
+      "mapper": {},
+      "metadata": {
+        "designer": {
+          "x": 600,
+          "y": 0
+        },
+        "restore": {
+          "flow": {
+            "id": 1,
+            "label": null
+          }
+        }
+      },
+      "name": "2. Tarik maks 4 berita terbit"
+    },
+    {
+      "id": 3,
+      "module": "builtin:BasicFeeder",
+      "version": 1,
+      "parameters": {},
+      "mapper": {
+        "array": "{{2.body.items}}"
+      },
+      "metadata": {
+        "designer": {
+          "x": 900,
+          "y": 0
+        },
+        "parameters": [
+          {
+            "name": "array",
+            "type": "array"
+          }
+        ],
+        "restore": {
+          "flow": {
+            "id": 2,
+            "label": null
+          }
+        }
+      },
+      "name": "3. Iterasi berita"
+    },
+    {
+      "id": 4,
+      "module": "facebook-pages:ActionCreatePost",
+      "version": 4,
+      "parameters": {
+        "account": "",
+        "message": "{{3.title}}\n\n{{3.summary}}\n\n{{3.articleUrl}}",
+        "link": "{{3.articleUrl}}",
+        "handleErrors": false
+      },
+      "mapper": {},
+      "metadata": {
+        "designer": {
+          "x": 1200,
+          "y": 0
+        },
+        "parameters": [
+          {
+            "name": "message",
+            "type": "text"
+          }
+        ],
+        "restore": {
+          "flow": {
+            "id": 3,
+            "label": null
+          }
+        }
+      },
+      "name": "4. Posting Facebook Page"
+    },
+    {
+      "id": 5,
+      "module": "http:ActionSendData",
+      "version": 3,
+      "parameters": {
+        "handleErrors": false,
+        "useNewZLibCompression": false,
+        "url": "https://lokal-news-fix-ujsf-64ay9i2fr-free2vps.vercel.app/api/hub/social?action=ack",
+        "method": "post",
+        "headers": [
+          {
+            "name": "Authorization",
+            "value": "Bearer GANTI_TOKEN_SOSIAL"
+          },
+          {
+            "name": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "qs": [],
+        "bodyType": "raw",
+        "parseResponse": true,
+        "authUser": null,
+        "authPass": null,
+        "timeout": "",
+        "shareCookies": false,
+        "ca": "",
+        "rejectUnauthorized": true,
+        "followRedirect": true,
+        "useQuerystring": false,
+        "gzip": true,
+        "useMtls": false,
+        "contentType": "application/json",
+        "serializeUrl": false,
+        "data": "[{\"deliveryKey\":\"{{3.deliveryKey}}\",\"ok\":true}]",
+        "escapeData": false,
+        "outputIntoBundle": false
+      },
+      "mapper": {},
+      "metadata": {
+        "designer": {
+          "x": 1500,
+          "y": 0
+        },
+        "restore": {
+          "flow": {
+            "id": 4,
+            "label": null
+          }
+        }
+      },
+      "name": "5. Ack item yang sudah diposting"
+    }
+  ],
+  "metadata": {
+    "instant": false,
+    "version": 1,
+    "scenario": {
+      "roundtrips": 1,
+      "maxErrors": 3,
+      "autoCommit": true,
+      "autoCommitTriggerLast": true,
+      "sequential": true,
+      "confidential": true,
+      "dataloss": false,
+      "dlq": false,
+      "freshVariables": false
+    },
+    "designer": {
+      "orphans": []
+    },
+    "zone": "eu1.make.com",
+    "notes": [],
+    "scheduling": {
+      "type": "indefinitely",
+      "interval": 10800
+    },
+    "description": "Satu pemicu: redaktur otomatis Hub (tarik semua RSS, ringkas, nilai, pilih, terbit) lalu tarik maks 4 artikel terbit dan posting ke Facebook Page. Jadwal 3 jam, jendela 05:00-23:59 diatur di Advanced scheduling."
+  }
+}
