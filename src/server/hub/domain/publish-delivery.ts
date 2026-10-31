@@ -1,6 +1,7 @@
 import {createHash} from 'node:crypto';
 import {mapHubArticle} from '@/lib/content-hub/mapping';
 import {slugify} from '@/lib/utils';
+import {resolveDeliveryTarget} from './delivery-target';
 import type {Deliver, DeliveryResult} from './publish-policy';
 
 /**
@@ -34,7 +35,8 @@ export function articleRow(snapshot: Record<string, unknown>) {
 
 export function supabaseDeliver(fetcher: typeof fetch = fetch, env: NodeJS.ProcessEnv = process.env): Deliver {
   return async (items) => {
-    const base = env[DELIVERY_ENV.url], key = env[DELIVERY_ENV.key];
+    const target = resolveDeliveryTarget(env);
+    const base = target.url, key = target.key;
     if (!base || !key) throw Error('PUBLISH_TARGET_NOT_CONFIGURED');
     let origin: URL;
     try { origin = new URL(base); } catch { throw Error('PUBLISH_TARGET_INVALID'); }

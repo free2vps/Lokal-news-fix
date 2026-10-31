@@ -1,3 +1,4 @@
+import {resolveDeliveryTarget} from './delivery-target';
 import {randomUUID} from 'node:crypto';
 import type {Client} from '@libsql/client';
 import {prepareAutoEditor, prepareDependencies, setAutoEditor, saveAutoConfig, readAutoConfig} from './auto-editor';
@@ -97,6 +98,7 @@ export async function quickStatus(db: Client) {
     configured: ready.length > 0 && confirmed > 0,
     rssTotal: rss.length, rssReady: ready.length, rssActive: active, rightsConfirmed: confirmed,
     editorEnabled: auto?.config?.enabled === true,
+    publishTarget: resolveDeliveryTarget().source,
     hint: ready.length === 0
       ? 'Tambahkan feed RSS yang valid di RSS Manager.'
       : confirmed === 0

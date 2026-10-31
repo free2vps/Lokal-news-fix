@@ -1,3 +1,4 @@
+import {resolveDeliveryTarget} from './delivery-target';
 import type {Client} from '@libsql/client';
 import {createHash, randomUUID} from 'node:crypto';
 import {sourceTime} from './editorial';
@@ -248,8 +249,8 @@ export function defaultDeliver(): Deliver {
   fn.builtin = true;
   return fn;
 }
-export function targetConfigured() {
-  return Boolean(process.env.HUB_WEBSITE_SUPABASE_URL && process.env.HUB_WEBSITE_SERVICE_ROLE_KEY);
+export function targetConfigured(env: NodeJS.ProcessEnv = process.env) {
+  return resolveDeliveryTarget(env).source !== 'none';
 }
 
 export async function publishArmed(db: Client, actor: string, deliver: Deliver = defaultDeliver(), now = Date.now()) {

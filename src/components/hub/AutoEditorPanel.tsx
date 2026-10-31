@@ -3,7 +3,7 @@ import {useCallback,useEffect,useState} from 'react';
 
 type Step={step:string;ok:boolean;detail:string;count?:number;sources?:{id:string;name:string;ok:boolean;inserted:number;error?:string}[]};
 type Run={trigger:string;status:string;pulled:number;selected:number;published:number;durationMs:number;at:string;steps:Step[]};
-type Quick={configured:boolean;rssTotal:number;rssReady:number;rssActive:number;rightsConfirmed:number;editorEnabled:boolean;hint:string};
+type Quick={configured:boolean;rssTotal:number;rssReady:number;rssActive:number;rightsConfirmed:number;editorEnabled:boolean;publishTarget?:'dedicated'|'fallback'|'none';hint:string};
 type Status={
   ready:boolean;quick:Quick|null;
   config:{enabled:boolean;maxPerRun:number;maxPerDay:number;windowHours:number;minTier:string;regions:string[];aiPerRun:number};
@@ -66,6 +66,7 @@ export default function AutoEditorPanel(){
     <div className="notice" role="status">
       <p><b>{on?'AKTIF':'NONAKTIF'}</b> · {q?`${q.rightsConfirmed} dari ${q.rssReady} feed siap berhak terkonfirmasi`:'—'} · terbit hari ini {st?.publishedToday??0}/{st?.config.maxPerDay??0}</p>
       <p className="tiny">{q?.hint||'Menyiapkan status…'}</p>
+      <p className="tiny">Tujuan terbit: {q?.publishTarget==='dedicated'?'terkonfigurasi penuh (HUB_WEBSITE_*)':q?.publishTarget==='fallback'?'otomatis memakai kredensial situs yang sudah ada':'BELUM terkonfigurasi — artikel tidak akan masuk ke portal'}</p>
     </div>
 
     <div className="form-actions">
