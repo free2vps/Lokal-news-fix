@@ -17,16 +17,22 @@ export async function verifyRss(db:Client,id:string){const s=await source(db,id)
  * Hak hanya diisi 'metadata_only' bila statusnya masih 'unknown'.
  */
 export async function setRssActive(db:Client,id:string,active:boolean){const s=await source(db,id);if(active&&s.discovered_type!=='rss')throw Error('SOURCE_NOT_READY');await db.execute({sql:"UPDATE hub_sources SET is_active=?,rights_status=CASE WHEN ?=1 AND rights_status='unknown' THEN 'metadata_only' ELSE rights_status END,updated_at=? WHERE id=?",args:[active?1:0,active?1:0,new Date().toISOString(),id]});return {active,rights:String(s.rights_status||'unknown')};}
-export async function syncRss(db:Client,id:string){const s=await source(db,id);if(Number(s.is_active)!==1||s.discovered_type!=='rss'||s.rights_status==='unknown')throw Error('SOURCE_NOT_READY');return runJob(db,'rss:'+id,async()=>{const items=(await feedItems(String(s.feed_url))).slice(0,ITEMS_PER_SYNC);let inserted=0,skipped=0,invalid=0;
+export async function syncRss(db:Client,id:string){const s=await source(db,id);if(Number(s.is_active)!==1||s.discovered_type!=='rss'||s.rights_status==='unknown')throw Error('SOURCE_NOT_READY');return runJob(db,'rss:'+id,async()=>{const items=(await feedItems(String(s.feed_url))).slice(0,ITEMS_PER_SYNC);let inserted=0,skipped=0,invalid=0,filled=0;
  for(const item of items){let normalized:string;try{normalized=normalizeArticleUrl(item.link||'');}catch{invalid++;continue;}
   const title=plain(item.title,300);if(!title){invalid++;continue;}
   // Legacy identity keys differ from feed GUID keys: preserve existing records and human edits.
-  if((await db.execute({sql:'SELECT id FROM hub_items WHERE source_id=? AND normalized_original_url=? LIMIT 1',args:[id,normalized]})).rows.length){skipped++;continue;}
+  const existing=(await db.execute({sql:'SELECT id,source_image_url FROM hub_items WHERE source_id=? AND normalized_original_url=? LIMIT 1',args:[id,normalized]})).rows[0];
+  if(existing){
+    // Isi gambar yang dulu tidak pernah diambil (data lama) tanpa mengubah identitas/versi berita.
+    const img=pickImage(item);
+    if(img&&!existing.source_image_url){await db.execute({sql:'UPDATE hub_items SET source_image_url=? WHERE id=?',args:[img,String(existing.id)]});filled++;}
+    skipped++;continue;
+  }
   const d=feedDate(item);const externalId=typeof item.guid==='string'&&item.guid.length<=500?item.guid:null;
   const result=await acceptSourceItem(db,{sourceId:id,externalId,url:normalized,title,snippet:plain(item.contentSnippet||item.summary||item.content||'',1500)||null,sourcePublishedAt:d.published,sourceDateRaw:d.raw?.slice(0,150)||null,imageUrl:pickImage(item)});
   if(result.status==='inserted')inserted++;else skipped++;
  }
- return {value:{inserted,skipped,invalid,processed:items.length,publicationEnabled:false},count:inserted,status:invalid?'PARTIAL':'SUCCESS'};
+ return {value:{inserted,skipped,invalid,filled,processed:items.length,publicationEnabled:false},count:inserted,status:invalid?'PARTIAL':'SUCCESS'};
  });}
 
 /** Baca feed TANPA menulis apa pun — dipakai diagnosa tarikan. */

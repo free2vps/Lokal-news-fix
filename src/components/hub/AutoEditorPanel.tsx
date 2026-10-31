@@ -18,6 +18,7 @@ type Status={
   ready:boolean;quick:Quick|null;
   config:{enabled:boolean;maxPerRun:number;maxPerDay:number;windowHours:number;minTier?:string;regions:string[];aiPerRun:number;mixRegionalPct?:number};
   selectionRules?:{key:string;label:string}[];
+  lastScheduled?:{at:string;status:string;published:number}|null;
   runs:Run[];sources:{total:number;permissionConfirmed:number;metadataOnly:number;unknown:number};publishedToday:number;
   policy:{hardMaxPerRun:number;hardMaxPerDay:number};
 };
@@ -94,6 +95,9 @@ export default function AutoEditorPanel(){
       <p><b>Syarat terbit</b> <span className="tiny">(semua harus ya — tidak ada skor yang menentukan)</span></p>
       <ul className="tiny">{(st?.selectionRules??[]).map(r=><li key={r.key}>• {r.label}</li>)}</ul>
       <p className="tiny">Skor mutu (dulu disebut radar/kurasi) tetap dihitung sebagai informasi di menu <b>Tinjau Manual</b>, tetapi tidak lagi menjadi syarat terbit.</p>
+      <p className="tiny"><b>Putaran terjadwal terakhir:</b> {st?.lastScheduled
+        ? `${new Date(st.lastScheduled.at).toLocaleString('id-ID',{dateStyle:'medium',timeStyle:'short',timeZone:'Asia/Makassar'})} WITA · ${st.lastScheduled.status} · ${st.lastScheduled.published} terbit`
+        : 'belum pernah — penjadwal GitHub Actions belum memanggil Hub'}</p>
     </div>
 
     {result&&<div className="notice">

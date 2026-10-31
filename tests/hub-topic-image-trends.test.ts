@@ -103,3 +103,32 @@ test('tanpa kredensial, tren tidak dikirim dan tidak ada jaringan', async () => 
   assert.equal(calls, 0);
   await db.close();
 });
+
+test('gambar untuk berita lama diisi saat feed kembali memuat item yang sama', async () => {
+  const {db} = await (async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'imgfill-'));
+    const client = createClient({url: 'file:' + path.join(dir, 'i.db')});
+    await client.executeMultiple(readFileSync('db/hub-migrations/001_initial.sql', 'utf8'));
+    await prepareFeatures(client);
+    const close = client.close.bind(client);
+    (client as any).close = async (...a: any[]) => { await (close as any)(...a); try { rmSync(dir, {recursive: true, force: true}); } catch {} };
+    return {db: client};
+  })();
+  const SRC = 'bbbbbbbb-1111-1111-1111-111111111111';
+  await db.execute({
+    sql: "INSERT INTO hub_sources(id,name,jurisdiction,region,requested_url,normalized_url,publisher_domain,source_kind,rights_status,is_active,discovered_type,feed_url,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,1,'rss',?,?,?)",
+    args: [SRC, 'media', 'Provinsi', 'NTB', 'https://a.test', 'https://a.test', 'a.test', 'rss', 'permission_confirmed', 'https://a.test/rss', '2026-10-31', '2026-10-31'],
+  });
+  // Berita lama: sudah ada, tanpa gambar.
+  await db.execute({
+    sql: "INSERT INTO hub_items(id,source_id,identity_key,original_url,normalized_original_url,source_title,source_published_at,first_seen_at,last_seen_at,version,review_state) VALUES('old',?,?,?,?,?,?,?,?,1,'pending_review')",
+    args: [SRC, 'url:https://a.test/1', 'https://a.test/1', 'https://a.test/1', 'Judul lama', '2026-10-31T09:00:00.000Z', '2026-10-31', '2026-10-31'],
+  });
+  // Simulasi hasil pickImage dari item feed yang sama.
+  assert.equal(pickImage({enclosure: {url: 'https://cdn.a.test/lama.jpg'}}), 'https://cdn.a.test/lama.jpg');
+  await db.execute({sql: 'UPDATE hub_items SET source_image_url=? WHERE id=? AND source_image_url IS NULL', args: ['https://cdn.a.test/lama.jpg', 'old']});
+  const row = (await db.execute("SELECT source_image_url,version FROM hub_items WHERE id='old'")).rows[0];
+  assert.equal(String(row.source_image_url), 'https://cdn.a.test/lama.jpg');
+  assert.equal(Number(row.version), 1, 'versi tidak berubah, edit manual tetap aman');
+  await db.close();
+});

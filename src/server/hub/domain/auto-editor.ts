@@ -637,8 +637,14 @@ export async function autoEditorStatus(db: Client) {
       else sources.unknown += Number(r.n);
     }
   } catch { /* tabel sumber belum ada */ }
+  // Bukti penjadwal: putaran terakhir yang dipicu scheduler (bukan tombol).
+  let lastScheduled: {at: string; status: string; published: number} | null = null;
+  try {
+    const r = (await db.execute("SELECT created_at,status,published FROM hub_auto_editor_runs_v2 WHERE trigger='scheduler' ORDER BY created_at DESC LIMIT 1")).rows[0];
+    if (r) lastScheduled = {at: String(r.created_at), status: String(r.status), published: Number(r.published)};
+  } catch { /* tabel belum ada */ }
   const dayStart = new Date(); dayStart.setUTCHours(0, 0, 0, 0);
   let publishedToday = 0;
   try { publishedToday = Number((await db.execute({sql: "SELECT count(*) n FROM hub_publish_outbox WHERE status='published' AND created_at>=?", args: [dayStart.toISOString()]})).rows[0].n); } catch {}
-  return {ready: true, config, runs, policy: AUTO_EDITOR_POLICY, sources, publishedToday, tierLabels: TIER_LABEL, selectionRules: SELECTION_RULES};
+  return {ready: true, config, runs, lastScheduled, policy: AUTO_EDITOR_POLICY, sources, publishedToday, tierLabels: TIER_LABEL, selectionRules: SELECTION_RULES};
 }

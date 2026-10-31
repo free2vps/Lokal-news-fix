@@ -132,3 +132,16 @@ test('artikel yang sebelumnya gagal dikirim DICOBA LAGI, tidak terkunci selamany
     globalThis.fetch = originalFetch;
   } finally { await db.close(); restore(); }
 });
+
+test('status melaporkan putaran terjadwal terakhir sebagai bukti penjadwal', async () => {
+  const {db} = await fixture();
+  try {
+    const {autoEditorStatus} = await import('../src/server/hub/domain/auto-editor');
+    const before = await autoEditorStatus(db);
+    assert.equal((before as {lastScheduled?: unknown}).lastScheduled, null);
+    await db.execute({sql: "INSERT INTO hub_auto_editor_runs_v2(id,trigger,status,steps_json,pulled,selected,published,duration_ms,created_at) VALUES('r1','scheduler','ok','[]',10,5,5,900,?)", args: [new Date(NOW).toISOString()]});
+    const after = await autoEditorStatus(db) as {lastScheduled?: {status: string; published: number} | null};
+    assert.equal(after.lastScheduled?.status, 'ok');
+    assert.equal(after.lastScheduled?.published, 5);
+  } finally { await db.close(); }
+});
