@@ -6,6 +6,10 @@ type Run={trigger:string;status:string;pulled:number;selected:number;published:n
 type DiagItem={title:string;state:string;dateOk:boolean;published:string|null;dateRaw:string|null};
 type Diag={at:string;windowHours:number;verdict:string;totals:{feedItems:number;siap:number;duplikat:number;tidak_valid:number};
   sources:{id:string;name:string;feedUrl:string|null;ok:boolean;error?:string;feedItems:number;inWindow:number|null;counts:Record<string,number>;samples:DiagItem[]}[]};
+type SelGate={key:string;label:string;dropped:number;remaining:number};
+type SelDiag={at:string;windowHours:number;minTier:string;rightsMode:string;allowedRegions:string[];totalItems:number;rowsScanned:number;survivors:number;
+  gates:SelGate[];byTier:Record<string,number>;byRegion:Record<string,number>;verdict:string;suggestion:string;
+  sources:{id:string;name:string;region:string;rights:string;active:boolean;items:number;inWindow:number;passAll:boolean;blockedBy:string|null}[]};
 type Quick={configured:boolean;rssTotal:number;rssReady:number;rssActive:number;rightsConfirmed:number;editorEnabled:boolean;publishTarget?:'dedicated'|'fallback'|'none';hint:string};
 type Status={
   ready:boolean;quick:Quick|null;
@@ -31,6 +35,8 @@ export default function AutoEditorPanel(){
   const [result,setResult]=useState<{included:number;skipped:number;tokens:{automation?:string;social?:string};next:string[]}|null>(null);
   const [cfg,setCfg]=useState<Status['config']|null>(null);
   const [diag,setDiag]=useState<Diag|null>(null);
+  const [sel,setSel]=useState<SelDiag|null>(null);
+  const [reasons,setReasons]=useState<Record<string,number>|null>(null);
 
   const load=useCallback(async()=>{
     try{const r=await fetch('/api/hub/auto-editor',{credentials:'same-origin',cache:'no-store'});const j=await r.json();if(!r.ok)throw Error(j.error);setSt(j);setCfg(j.config);}
@@ -75,9 +81,10 @@ export default function AutoEditorPanel(){
 
     <div className="form-actions">
       <button className="button" disabled={busy} onClick={sekaliAtur}>⚡ Sekali Atur (siapkan + aktifkan)</button>
-      <button className="button" disabled={busy||!st?.ready} onClick={()=>void run(()=>api({action:'run',confirm:'RUN AUTO EDITOR'}),'Putaran selesai.')}>▶ Jalankan sekarang</button>
+      <button className="button" disabled={busy||!st?.ready} onClick={()=>void run(async()=>{const j=await api({action:'run',confirm:'RUN AUTO EDITOR'});setReasons((j as {reasons?:Record<string,number>}).reasons||null);return j;},'Putaran selesai.')}>▶ Jalankan sekarang</button>
       {on&&<button className="button secondary" disabled={busy} onClick={()=>void run(()=>api({action:'disable'}),'Redaktur dimatikan. Tidak ada yang terbit pada putaran berikutnya.')}>Matikan</button>}
       <button className="button secondary" disabled={busy} onClick={()=>void run(async()=>setDiag(await api({action:'diagnose'})),'Diagnosa selesai — tidak ada yang ditulis ke database.')}>🔍 Diagnosa tarikan</button>
+      <button className="button secondary" disabled={busy} onClick={()=>void run(async()=>setSel(await api({action:'diagnoseSelection'})),'Diagnosa seleksi selesai — tidak ada yang ditulis ke database.')}>🔎 Kenapa 0 terbit?</button>
       <button className="button secondary" disabled={busy} onClick={()=>void load()}>Muat ulang</button>
     </div>
     <p className="tiny">Satu tombol cukup untuk pemakaian sehari-hari. Semua langkah lain ada di <b>Lanjutan</b> di bawah.</p>
@@ -97,6 +104,21 @@ export default function AutoEditorPanel(){
       <ol className="tiny">{last.steps.map((s,i)=><li key={i}>{s.ok?'✔':'✖'} {s.step}: {s.detail}
         {!!s.sources?.length&&<ul>{s.sources.map(x=><li key={x.id}>{x.ok?'•':'✖'} {x.name}: {x.ok?`${x.inserted} baru dari ${x.processed??0} item${x.skipped?` · ${x.skipped} duplikat`:''}${x.invalid?` · ${x.invalid} tidak valid`:''}`:`gagal (${x.error})`}</li>)}</ul>}
       </li>)}</ol>
+    </div>}
+
+    {sel&&<div className="notice">
+      <p><b>Diagnosa seleksi</b> <button className="button secondary" onClick={()=>setSel(null)}>tutup</button></p>
+      <p><b>{sel.verdict}</b></p>
+      <p className="tiny">{sel.rowsScanned} dari {sel.totalItems} kandidat diperiksa · umur berita {sel.windowHours} jam · kelas minimum {sel.minTier} · wilayah {sel.allowedRegions.join(', ')} · hanya baca</p>
+      <table className="tiny"><thead><tr><th>Saringan</th><th>Gugur</th><th>Tersisa</th></tr></thead><tbody>
+        {sel.gates.map(g=><tr key={g.key}><td>{g.label}</td><td>{g.dropped}</td><td>{g.remaining}</td></tr>)}
+      </tbody></table>
+      <p className="tiny">Kelas: {Object.entries(sel.byTier).map(([k,v])=>`${k} ${v}`).join(' · ')||'—'} · Wilayah: {Object.entries(sel.byRegion).map(([k,v])=>`${k} ${v}`).join(' · ')||'—'}</p>
+      <p><b>Saran:</b> {sel.suggestion}</p>
+      {!!sel.sources.length&&<details><summary className="tiny">Rincian per sumber ({sel.sources.length})</summary>
+        <ul className="tiny">{sel.sources.map(x=><li key={x.id}>{x.passAll?'✔':'✖'} <b>{x.name}</b> ({x.region||'-'} · {x.rights}) — {x.items} kandidat, {x.inWindow} dalam jendela{x.blockedBy?` · terblokir: ${x.blockedBy}`:' · lolos'}</li>)}</ul>
+      </details>}
+      <p className="tiny">Diagnosa ini tidak mengubah konfigurasi apa pun. Semua angka dihitung dengan saringan yang sama seperti putaran terbit.</p>
     </div>}
 
     {diag&&<div className="notice">
@@ -125,6 +147,7 @@ export default function AutoEditorPanel(){
       <p className="tiny">Pakai GitHub Actions (berkas .github/workflows/hub-tick.yml di paket) atau Make — keduanya memanggil endpoint yang sama.</p>
     </details>
 
+    {reasons&&Object.keys(reasons).length>0&&<div className="notice"><p className="tiny"><b>Alasan gugur putaran terakhir:</b> {Object.entries(reasons).map(([k,v])=>`${k} (${v})`).join(' · ')}</p></div>}
     {note&&<p role="status">{note}</p>}
     {last&&(last as unknown as {storeError?:string}).storeError&&<p role="alert" className="notice error">Putaran selesai tetapi riwayat putaran gagal disimpan (RUN_LOG_UNAVAILABLE). Langkah di atas tetap dijalankan.</p>}
     {err&&<p role="alert" className="notice error">{err}</p>}
