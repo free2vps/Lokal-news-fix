@@ -21,3 +21,14 @@ export async function syncRss(db:Client,id:string){const s=await source(db,id);i
  }
  return {value:{inserted,skipped,invalid,processed:items.length,publicationEnabled:false},count:inserted,status:invalid?'PARTIAL':'SUCCESS'};
  });}
+
+/** Baca feed TANPA menulis apa pun — dipakai diagnosa tarikan. */
+export async function peekFeed(url:string,limit=10){
+  const items=await feedItems(url);
+  return items.slice(0,limit).map(it=>{
+    const d=feedDate(it);let normalized:string|null=null,urlError:string|null=null;
+    try{normalized=normalizeArticleUrl(it.link||'');}catch(e){urlError=(e instanceof Error?e.message:'').replace(/[^A-Z0-9_]/g,'').slice(0,40)||'URL_INVALID';}
+    const externalId=typeof it.guid==='string'&&it.guid.length<=500?it.guid:null;
+    return {title:plain(it.title||'',300),link:String(it.link||'')||null,normalized,urlError,dateRaw:d.raw,published:d.published,externalId};
+  });
+}

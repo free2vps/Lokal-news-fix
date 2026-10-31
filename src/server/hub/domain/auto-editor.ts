@@ -195,7 +195,7 @@ type Candidate = {
   tier: string; sourceId: string; sourceName: string; rights: string; snippet: string; dateRaw: string | null; priority: boolean;
 };
 
-export type PullSource = {id: string; name: string; ok: boolean; inserted: number; error?: string};
+export type PullSource = {id: string; name: string; ok: boolean; inserted: number; error?: string; processed?: number; skipped?: number; invalid?: number};
 export type StepResult = {step: string; ok: boolean; detail: string; count?: number; sources?: PullSource[]};
 export type RunOptions = {
   now?: number; trigger?: string; deliver?: Deliver; master?: string;
@@ -226,10 +226,11 @@ export async function runAutoEditor(db: Client, opts: RunOptions = {}) {
         if (Date.now() - started > budget) break;
         scanned += 1;
         try {
-          const r = await syncRss(db, String(s.id));
-          const inserted = Number((r as {count?: number})?.count || 0);
+          const r = await syncRss(db, String(s.id)) as {inserted?: number; skipped?: number; invalid?: number; processed?: number};
+          const inserted = Number(r?.inserted || 0);
           pulled += inserted; ok += 1;
-          perSource.push({id: String(s.id), name: String(s.name || ''), ok: true, inserted});
+          perSource.push({id: String(s.id), name: String(s.name || ''), ok: true, inserted,
+            processed: Number(r?.processed || 0), skipped: Number(r?.skipped || 0), invalid: Number(r?.invalid || 0)});
         } catch (e) {
           fail += 1;
           const code = (e instanceof Error ? e.message : '').replace(/[^A-Z0-9_]/g, '').slice(0, 40) || 'RSS_ERROR';
@@ -237,8 +238,11 @@ export async function runAutoEditor(db: Client, opts: RunOptions = {}) {
         }
       }
       const zero = perSource.filter(x => x.ok && x.inserted === 0).length;
+      const read = perSource.reduce((a, x) => a + (x.processed || 0), 0);
+      const dup = perSource.reduce((a, x) => a + (x.skipped || 0), 0);
+      const bad = perSource.reduce((a, x) => a + (x.invalid || 0), 0);
       const detail = sources.length
-        ? `${scanned}/${sources.length} sumber diperiksa, ${pulled} berita baru${zero ? `, ${zero} tanpa berita baru` : ''}${fail ? `, ${fail} gagal` : ''}`
+        ? `${scanned}/${sources.length} sumber diperiksa, ${read} item dibaca, ${pulled} berita baru, ${dup} duplikat${bad ? `, ${bad} tidak valid` : ''}${zero ? `, ${zero} sumber tanpa berita baru` : ''}${fail ? `, ${fail} gagal` : ''}${pulled === 0 && read > 0 ? ' — tekan "Diagnosa tarikan" untuk melihat contoh item' : ''}`
         : 'Belum ada sumber RSS aktif dengan hak yang jelas — tidak ada yang ditarik';
       steps.push({step: 'pull', ok: true, detail, count: pulled, sources: perSource});
     } catch { push('pull', false, 'Gagal membaca daftar sumber', 0); }
@@ -403,13 +407,16 @@ export async function runAutoEditor(db: Client, opts: RunOptions = {}) {
 
   const duration = Date.now() - started;
   const status = steps.every(s => s.ok) ? 'ok' : steps.some(s => s.ok) ? 'partial' : 'failed';
-  await db.execute({sql: 'INSERT INTO hub_auto_editor_runs_v2(id,trigger,status,steps_json,pulled,selected,published,duration_ms,created_at) VALUES(?,?,?,?,?,?,?,?,?)',
-    args: [randomUUID(), String(opts.trigger || 'manual').slice(0, 40), status, JSON.stringify(steps), pulled, picked.length, published, duration, new Date(now).toISOString()]});
+  let storeError: string | null = null;
+  try {
+    await db.execute({sql: 'INSERT INTO hub_auto_editor_runs_v2(id,trigger,status,steps_json,pulled,selected,published,duration_ms,created_at) VALUES(?,?,?,?,?,?,?,?,?)',
+      args: [randomUUID(), String(opts.trigger || 'manual').slice(0, 40), status, JSON.stringify(steps), pulled, picked.length, published, duration, new Date(now).toISOString()]});
+  } catch { storeError = 'RUN_LOG_UNAVAILABLE'; }
 
   return {
     status, runAt: new Date(now).toISOString(), durationMs: duration, steps,
     pulled, candidates: candidates.length, selected: picked.length, published, duplicates, failed: failed.length,
-    reasons, config: cfg, approvalRemainsHuman: false, autoPublication: true,
+    reasons, config: cfg, approvalRemainsHuman: false, autoPublication: true, storeError,
     note: 'Terbit otomatis: artikel masuk database situs tanpa klik persetujuan. Semua keputusan tercatat di audit.',
   };
 }

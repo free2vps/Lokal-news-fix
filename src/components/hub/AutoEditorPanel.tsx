@@ -1,8 +1,11 @@
 'use client';
 import {useCallback,useEffect,useState} from 'react';
 
-type Step={step:string;ok:boolean;detail:string;count?:number;sources?:{id:string;name:string;ok:boolean;inserted:number;error?:string}[]};
+type Step={step:string;ok:boolean;detail:string;count?:number;sources?:{id:string;name:string;ok:boolean;inserted:number;error?:string;processed?:number;skipped?:number;invalid?:number}[]};
 type Run={trigger:string;status:string;pulled:number;selected:number;published:number;durationMs:number;at:string;steps:Step[]};
+type DiagItem={title:string;state:string;dateOk:boolean;published:string|null;dateRaw:string|null};
+type Diag={at:string;windowHours:number;verdict:string;totals:{feedItems:number;siap:number;duplikat:number;tidak_valid:number};
+  sources:{id:string;name:string;feedUrl:string|null;ok:boolean;error?:string;feedItems:number;inWindow:number|null;counts:Record<string,number>;samples:DiagItem[]}[]};
 type Quick={configured:boolean;rssTotal:number;rssReady:number;rssActive:number;rightsConfirmed:number;editorEnabled:boolean;publishTarget?:'dedicated'|'fallback'|'none';hint:string};
 type Status={
   ready:boolean;quick:Quick|null;
@@ -27,6 +30,7 @@ export default function AutoEditorPanel(){
   const [adv,setAdv]=useState(false);
   const [result,setResult]=useState<{included:number;skipped:number;tokens:{automation?:string;social?:string};next:string[]}|null>(null);
   const [cfg,setCfg]=useState<Status['config']|null>(null);
+  const [diag,setDiag]=useState<Diag|null>(null);
 
   const load=useCallback(async()=>{
     try{const r=await fetch('/api/hub/auto-editor',{credentials:'same-origin',cache:'no-store'});const j=await r.json();if(!r.ok)throw Error(j.error);setSt(j);setCfg(j.config);}
@@ -73,6 +77,7 @@ export default function AutoEditorPanel(){
       <button className="button" disabled={busy} onClick={sekaliAtur}>⚡ Sekali Atur (siapkan + aktifkan)</button>
       <button className="button" disabled={busy||!st?.ready} onClick={()=>void run(()=>api({action:'run',confirm:'RUN AUTO EDITOR'}),'Putaran selesai.')}>▶ Jalankan sekarang</button>
       {on&&<button className="button secondary" disabled={busy} onClick={()=>void run(()=>api({action:'disable'}),'Redaktur dimatikan. Tidak ada yang terbit pada putaran berikutnya.')}>Matikan</button>}
+      <button className="button secondary" disabled={busy} onClick={()=>void run(async()=>setDiag(await api({action:'diagnose'})),'Diagnosa selesai — tidak ada yang ditulis ke database.')}>🔍 Diagnosa tarikan</button>
       <button className="button secondary" disabled={busy} onClick={()=>void load()}>Muat ulang</button>
     </div>
     <p className="tiny">Satu tombol cukup untuk pemakaian sehari-hari. Semua langkah lain ada di <b>Lanjutan</b> di bawah.</p>
@@ -90,8 +95,19 @@ export default function AutoEditorPanel(){
     {last&&<div className="notice">
       <p><b>Putaran terakhir:</b> {last.status} · ditarik {last.pulled} · dipilih {last.selected} · terbit {last.published} · {Math.round(last.durationMs/1000)}s</p>
       <ol className="tiny">{last.steps.map((s,i)=><li key={i}>{s.ok?'✔':'✖'} {s.step}: {s.detail}
-        {!!s.sources?.length&&<ul>{s.sources.map(x=><li key={x.id}>{x.ok?'•':'✖'} {x.name}: {x.ok?`${x.inserted} berita baru`:`gagal (${x.error})`}</li>)}</ul>}
+        {!!s.sources?.length&&<ul>{s.sources.map(x=><li key={x.id}>{x.ok?'•':'✖'} {x.name}: {x.ok?`${x.inserted} baru dari ${x.processed??0} item${x.skipped?` · ${x.skipped} duplikat`:''}${x.invalid?` · ${x.invalid} tidak valid`:''}`:`gagal (${x.error})`}</li>)}</ul>}
       </li>)}</ol>
+    </div>}
+
+    {diag&&<div className="notice">
+      <p><b>Diagnosa tarikan</b> <button className="button secondary" onClick={()=>setDiag(null)}>tutup</button></p>
+      <p><b>{diag.verdict}</b></p>
+      <p className="tiny">{diag.totals.feedItems} item dibaca · {diag.totals.siap} baru · {diag.totals.duplikat} duplikat · {diag.totals.tidak_valid} tidak valid · jendela {diag.windowHours} jam · hanya baca</p>
+      <ul className="tiny">{diag.sources.map(s=><li key={s.id}>
+        {s.ok?'•':'✖'} <b>{s.name}</b>{s.ok?` — ${s.feedItems} item di feed · ${s.counts.siap??0} baru · ${(s.counts.duplikat_url??0)+(s.counts.duplikat_identitas??0)} duplikat · ${(s.counts.url_invalid??0)+(s.counts.judul_kosong??0)} tidak valid · tersimpan ${s.inWindow??'?'} item dalam ${diag.windowHours} jam`:` — gagal (${s.error})`}
+        {!!s.samples.length&&<ul>{s.samples.map((it,i)=><li key={i} className="tiny">{it.state==='siap'?'✔ baru':'· '+it.state}: {it.title||'(tanpa judul)'} — {it.dateOk?String(it.published).slice(0,16).replace('T',' '):'tanggal tidak terbaca'}</li>)}</ul>}
+      </li>)}</ul>
+      <p className="tiny">Tidak ada satu baris pun yang ditulis ke database oleh diagnosa ini. Bila hasilnya "semua duplikat", redaktur memang benar: belum ada artikel baru di feed sejak tarikan terakhir.</p>
     </div>}
 
     <details open={adv} onToggle={e=>setAdv((e.target as HTMLDetailsElement).open)}><summary>Lanjutan: kriteria, konfigurasi &amp; pemicu</summary>
@@ -110,6 +126,7 @@ export default function AutoEditorPanel(){
     </details>
 
     {note&&<p role="status">{note}</p>}
+    {last&&(last as unknown as {storeError?:string}).storeError&&<p role="alert" className="notice error">Putaran selesai tetapi riwayat putaran gagal disimpan (RUN_LOG_UNAVAILABLE). Langkah di atas tetap dijalankan.</p>}
     {err&&<p role="alert" className="notice error">{err}</p>}
   </section>;
 }
