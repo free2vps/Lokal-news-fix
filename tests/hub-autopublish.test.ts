@@ -9,7 +9,7 @@ import {
   publishStatus, PUBLISH_POLICY, DEFAULT_CONFIG, targetConfigured,
 } from '../src/server/hub/domain/publish-policy';
 import {supabaseDeliver, articleRow} from '../src/server/hub/domain/publish-delivery';
-import AutopublishPanel from '../src/components/hub/AutopublishPanel';
+import AdvancedTools from '../src/components/hub/AdvancedTools';
 import {prepareProfiles, profileBatch} from '../src/server/hub/domain/content-profile';
 import {prepareValues, valueBatch} from '../src/server/hub/domain/editorial-value';
 import {prepareSummarySchema} from '../src/server/hub/domain/ai-summary';
@@ -303,10 +303,11 @@ test('stage8 API requires owner, CSRF, Preview webhub and explicit confirmations
   }
 });
 
-test('stage8 UI states the locks: dry-run first, single-use arm, no layout change', () => {
-  const html = renderToStaticMarkup(React.createElement(AutopublishPanel, {}));
-  assert.ok(html.includes('Autopublish ber-allowlist'));
-  assert.ok(html.includes('dry-run'));
-  assert.ok(html.includes('tidak mengubah beranda'));
-  assert.ok(html.includes('izin sekali pakai') || html.includes('Siapkan tabel autopublish'));
+test('panel Lanjutan hanya menyisakan dua pemeriksaan aman, tanpa jalur terbit kedua', () => {
+  const html = renderToStaticMarkup(React.createElement(AdvancedTools, {}));
+  assert.ok(html.includes('Uji pengiriman (tanpa kirim)'), 'dry-run masih tersedia');
+  assert.ok(html.includes('Proses satu tugas latar'));
+  assert.ok(!html.includes('Kirim sekarang'), 'tidak ada tombol terbit kedua');
+  assert.ok(!html.includes('Aktifkan sesuai dry-run'), 'izin sekali pakai sudah dihapus');
+  assert.ok(!html.includes('allowlist'), 'form allowlist yang membingungkan sudah dihapus');
 });

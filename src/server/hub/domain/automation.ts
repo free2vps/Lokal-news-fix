@@ -109,7 +109,9 @@ export async function runAutomation(db: Client, opts: AutomationOptions = {}) {
     if (!st.ready) push('publish', false, 'tabel autopublish belum disiapkan (Tahap 8)', 0);
     else if (!st.config.scheduleEnabled) push('publish', true, 'terbit terjadwal nonaktif — dilewati', 0);
     else {
-      const deliver = (opts.deliver as never) || mod.defaultDeliver();
+      const {targetConfigured} = mod;
+      const delivery = await import('./publish-delivery');
+      const deliver = (opts.deliver as never) || (targetConfigured() ? delivery.supabaseDeliver() : mod.defaultDeliver());
       const out = await mod.publishScheduled(db, 'scheduler:3h', deliver, now);
       publish = out as unknown as Record<string, unknown>;
       push('publish', true, out.skipped ? `dilewati: ${out.reason}` : `${out.published} terbit, ${out.failed} gagal`, out.published);

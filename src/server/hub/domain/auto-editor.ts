@@ -4,7 +4,8 @@ import {extractiveSummary, normalizeText, runSummaryBatch, applySummary, summary
 import {valueBatch, valueStatus, TIER_LABEL} from './editorial-value';
 import {profileBatch, profileStatus} from './content-profile';
 import {syncRss} from './rss-runtime';
-import {defaultDeliver, type Deliver} from './publish-policy';
+import {defaultDeliver, targetConfigured, type Deliver} from './publish-policy';
+import {supabaseDeliver} from './publish-delivery';
 import {enqueuePublished, socialReady} from './social-pull';
 import {sourceTime} from './editorial';
 import {detectRegion} from '@/config/regions';
@@ -507,7 +508,10 @@ export async function runAutoEditor(db: Client, opts: RunOptions = {}) {
   let published = 0, duplicates = 0;
   const failed: {id: string; code: string}[] = [];
   if (picked.length) {
-    const deliver = opts.deliver ?? defaultDeliver();
+    // BUG yang diperbaiki: jalur redaktur otomatis dulu selalu memakai adapter kosong
+    // (`defaultDeliver`) yang MENOLAK dengan PUBLISH_TARGET_NOT_CONFIGURED, walaupun kredensial
+    // situs tersedia. Sekarang adapter sungguhan dipakai bila tujuannya terkonfigurasi.
+    const deliver = opts.deliver ?? (targetConfigured() ? supabaseDeliver() : defaultDeliver());
     const claimed: Candidate[] = [];
     for (const c of picked) {
       const key = createHash('sha256').update(`auto:${c.id}:${c.version}`).digest('hex');

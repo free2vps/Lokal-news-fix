@@ -10,7 +10,7 @@ import {
   prepareSocialSchema, enqueuePublished, claimBatch, acknowledge, socialStatus,
   issueSocialToken, revokeSocialToken, verifySocialToken, requeueFailed, SOCIAL_POLICY, siteBase,
 } from '../src/server/hub/domain/social-pull';
-import AutomationPanel from '../src/components/hub/AutomationPanel';
+import AdvancedTools from '../src/components/hub/AdvancedTools';
 
 const NOW = Date.parse('2026-10-30T09:00:00Z');
 const SITE = 'https://contoh-situs.example';
@@ -180,11 +180,12 @@ test('stage9 pull and ack API reject anonymous callers and unknown actions', asy
   }
 });
 
-test('stage9 UI shows 3-hour automation, 4-news cap and honest at-least-once caveat', () => {
-  const html = renderToStaticMarkup(React.createElement(AutomationPanel, {}));
-  assert.ok(html.includes('Otomasi 3 jam'));
-  assert.ok(html.includes('maksimal 4 berita'));
-  assert.ok(html.includes('tetap manual') || html.includes('Persetujuan berita'));
-  assert.ok(html.includes('at-least-once'));
-  assert.ok(html.includes('Siapkan tabel otomasi'));
+test('panel Lanjutan menyebut batas Facebook dan asal token, tanpa tombol berlebih', () => {
+  const html = renderToStaticMarkup(React.createElement(AdvancedTools, {}));
+  assert.ok(html.includes('Kirim ke Facebook lewat Make'));
+  assert.ok(html.includes('per tarikan'), 'batas 4 per tarikan tetap dijelaskan');
+  assert.ok(html.includes('Token Facebook tetap disimpan di Make'));
+  assert.ok(html.includes('Buat token Make'));
+  const buttons = (html.match(/<button/g) || []).length;
+  assert.ok(buttons <= 6, `maksimum 6 tombol di Lanjutan, ditemukan ${buttons}`);
 });

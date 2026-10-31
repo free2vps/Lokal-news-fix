@@ -87,11 +87,8 @@ export default function AutoEditorPanel(){
       <button className="button" disabled={busy} onClick={sekaliAtur}>⚡ Sekali Atur (siapkan + aktifkan)</button>
       <button className="button" disabled={busy||!st?.ready} onClick={()=>void run(async()=>{const j=await api({action:'run',confirm:'RUN AUTO EDITOR'});setReasons((j as {reasons?:Record<string,number>}).reasons||null);return j;},'Putaran selesai.')}>▶ Jalankan sekarang</button>
       {on&&<button className="button secondary" disabled={busy} onClick={()=>void run(()=>api({action:'disable'}),'Redaktur dimatikan. Tidak ada yang terbit pada putaran berikutnya.')}>Matikan</button>}
-      <button className="button secondary" disabled={busy} onClick={()=>void run(async()=>setDiag(await api({action:'diagnose'})),'Diagnosa selesai — tidak ada yang ditulis ke database.')}>🔍 Diagnosa tarikan</button>
-      <button className="button secondary" disabled={busy} onClick={()=>void run(async()=>setSel(await api({action:'diagnoseSelection'})),'Diagnosa seleksi selesai — tidak ada yang ditulis ke database.')}>🔎 Kenapa 0 terbit?</button>
-      <button className="button secondary" disabled={busy} onClick={()=>void load()}>Muat ulang</button>
     </div>
-    <p className="tiny">Satu tombol cukup untuk pemakaian sehari-hari. Semua langkah lain ada di <b>Lanjutan</b> di bawah.</p>
+    <p className="tiny"><b>{on ? (q && q.rightsConfirmed > 0 ? 'Siap. Tekan "Jalankan sekarang" untuk menerbitkan sekali, atau biarkan penjadwal 3 jam bekerja.' : 'Belum bisa terbit: belum ada sumber yang saklarnya menyala di RSS Manager.') : 'Aktifkan redaktur dulu dengan tombol di atas.'}</b> Semua langkah lain ada di <b>Lanjutan</b>.</p>
 
     <div className="notice">
       <p><b>Syarat terbit</b> <span className="tiny">(semua harus ya — tidak ada skor yang menentukan)</span></p>
@@ -146,7 +143,11 @@ export default function AutoEditorPanel(){
       <p className="tiny">Tidak ada satu baris pun yang ditulis ke database oleh diagnosa ini. Bila hasilnya "semua duplikat", redaktur memang benar: belum ada artikel baru di feed sejak tarikan terakhir.</p>
     </div>}
 
-    <details open={adv} onToggle={e=>setAdv((e.target as HTMLDetailsElement).open)}><summary>Lanjutan: kriteria, konfigurasi &amp; pemicu</summary>
+    <details open={adv} onToggle={e=>setAdv((e.target as HTMLDetailsElement).open)}><summary>Lanjutan: kriteria, konfigurasi, pemicu &amp; alat bantu</summary>
+      <div className="form-actions">
+        <button className="button secondary" disabled={busy} onClick={()=>void run(async()=>setDiag(await api({action:'diagnose'})),'Diagnosa selesai — tidak ada yang ditulis ke database.')}>🔍 Diagnosa tarikan</button>
+        <button className="button secondary" disabled={busy} onClick={()=>void run(async()=>setSel(await api({action:'diagnoseSelection'})),'Diagnosa seleksi selesai — tidak ada yang ditulis ke database.')}>🔎 Kenapa 0 terbit?</button>
+      </div>
       <form className="form-grid" onSubmit={e=>{e.preventDefault();if(!cfg)return;void run(()=>api({action:'config',confirm:'SIMPAN KONFIGURASI EDITOR',config:cfg}),'Konfigurasi disimpan.');}}>
         <label>Maksimum terbit per putaran<input type="number" min={1} max={st?.policy.hardMaxPerRun??12} value={cfg?.maxPerRun??8} onChange={e=>setCfg(c=>c?{...c,maxPerRun:Number(e.target.value)}:c)}/></label>
         <label>Maksimum per hari<input type="number" min={1} max={st?.policy.hardMaxPerDay??60} value={cfg?.maxPerDay??40} onChange={e=>setCfg(c=>c?{...c,maxPerDay:Number(e.target.value)}:c)}/></label>
