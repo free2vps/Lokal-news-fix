@@ -9,6 +9,7 @@ import {supabaseDeliver} from './publish-delivery';
 import {enqueuePublished, socialReady} from './social-pull';
 import {sourceTime} from './editorial';
 import {detectRegion} from '@/config/regions';
+import {topicOf} from './topic';
 
 /**
  * Tahap 10 — Redaktur Otomatis.
@@ -127,6 +128,8 @@ export async function prepareAutoEditor(db: Client) {
   // Basis data lama belum punya kolom porsi campuran; tambahkan tanpa menghapus data.
   try { await db.execute('ALTER TABLE hub_auto_editor_config_v2 ADD COLUMN mix_regional_pct INTEGER NOT NULL DEFAULT 60'); } catch { /* sudah ada */ }
   await db.execute(`CREATE TABLE IF NOT EXISTS hub_auto_cursor_v2(name TEXT PRIMARY KEY, cursor TEXT NOT NULL, swept_at TEXT)`);
+  // Kolom gambar asli (hanya URL, bukan salinan gambar). Basis data lama ditambah tanpa menghapus data.
+  try { await db.execute('ALTER TABLE hub_items ADD COLUMN source_image_url TEXT'); } catch { /* sudah ada */ }
   await db.execute(`CREATE TABLE IF NOT EXISTS hub_auto_editorial_v2(
     item_id TEXT NOT NULL, item_version INTEGER NOT NULL, title TEXT NOT NULL, summary TEXT NOT NULL,
     bullets_json TEXT NOT NULL, method TEXT NOT NULL, created_at TEXT NOT NULL,
@@ -302,6 +305,7 @@ type Candidate = {
   id: string; version: number; title: string; summary: string; bullets: string[]; method: 'manual' | 'extractive' | 'ai';
   url: string; publishedAt: string; category: string | null; region: string; regions: string[]; scope: 'daerah' | 'nasional';
   tier: string; sourceId: string; sourceName: string; rights: string; snippet: string; dateRaw: string | null; priority: boolean;
+  imageUrl: string | null;
 };
 
 export type PullSource = {id: string; name: string; ok: boolean; inserted: number; error?: string; processed?: number; skipped?: number; invalid?: number; cooled?: boolean};
@@ -426,11 +430,11 @@ export async function runAutoEditor(db: Client, opts: RunOptions = {}) {
   // Panel tahap lain mungkin belum disiapkan; kueri tetap jalan tanpa tabel profil/nilai.
   let rows: Record<string, unknown>[];
   try {
-    rows = (await db.execute(`SELECT i.id,i.version,i.source_id,i.original_url,i.source_title,i.source_snippet,i.source_published_at,i.source_date_raw,
+    rows = (await db.execute(`SELECT i.id,i.version,i.source_id,i.original_url,i.source_title,i.source_snippet,i.source_published_at,i.source_date_raw,i.source_image_url,
         i.editorial_title,i.editorial_summary,i.editorial_category,p.profile_json,v.value_json
       FROM hub_items i LEFT JOIN hub_content_profiles_v2 p ON p.item_id=i.id LEFT JOIN hub_editorial_value_v2 v ON v.item_id=i.id`)).rows as unknown as Record<string, unknown>[];
   } catch {
-    rows = (await db.execute(`SELECT i.id,i.version,i.source_id,i.original_url,i.source_title,i.source_snippet,i.source_published_at,i.source_date_raw,
+    rows = (await db.execute(`SELECT i.id,i.version,i.source_id,i.original_url,i.source_title,i.source_snippet,i.source_published_at,i.source_date_raw,i.source_image_url,
         i.editorial_title,i.editorial_summary,i.editorial_category,NULL profile_json,NULL value_json FROM hub_items i`)).rows as unknown as Record<string, unknown>[];
   }
 
@@ -470,7 +474,10 @@ export async function runAutoEditor(db: Client, opts: RunOptions = {}) {
     const method: Candidate['method'] = manualTitle && manualSummary ? 'manual' : 'extractive';
     candidates.push({
       id, version, title, summary, bullets: keyPointsFor(title, snippet), method,
-      url: String(row.original_url || ''), publishedAt: String(stamp), category: row.editorial_category ? String(row.editorial_category) : null,
+      url: String(row.original_url || ''), publishedAt: String(stamp),
+      // Kategori: suntingan manusia menang; bila tidak ada, diklasifikasi deterministik dari judul+ringkasan.
+      category: normalizeText(row.editorial_category, 60) || topicOf({title, summary}),
+      imageUrl: row.source_image_url ? String(row.source_image_url) : null,
       region: regions[0], regions, scope, tier, sourceId: String(row.source_id), sourceName: src.name, rights: src.rights,
       snippet, dateRaw: row.source_date_raw ? String(row.source_date_raw) : null, priority: scope === 'daerah',
     });
@@ -525,6 +532,7 @@ export async function runAutoEditor(db: Client, opts: RunOptions = {}) {
         id: c.id, sourceId: c.sourceId, originalUrl: c.url, sourceTitle: c.title, sourceSnippet: c.snippet,
         sourcePublishedAt: c.publishedAt, sourceDateRaw: c.dateRaw, editorialTitle: c.title, editorialSummary: c.summary,
         editorialCategory: c.category, version: c.version, autoEditorial: true, autoMethod: c.method,
+        sourceName: c.sourceName, sourceImageUrl: c.imageUrl, sourceRights: c.rights,
       });
       // Outbox mensyaratkan baris persetujuan (item_id,version). Redaktur otomatis mencatat
       // persetujuannya sendiri dengan penanda jelas 'auto-editor' agar tetap dapat diaudit;
@@ -578,6 +586,18 @@ export async function runAutoEditor(db: Client, opts: RunOptions = {}) {
       push('social_queue', true, `${out.inserted} artikel masuk antrean media sosial`, out.inserted);
     } else push('social_queue', false, 'Tabel antrean sosial belum disiapkan — Facebook tidak akan menerima apa pun', 0);
   } catch { push('social_queue', false, 'Gagal mengisi antrean media sosial', 0); }
+
+  // 9. Tren X + YouTube ke beranda portal (hanya bila tujuan terbit tersambung).
+  try {
+    const {publishTrends} = await import('./trends-publish');
+    if (!targetConfigured()) push('trends', true, 'Dilewati: tujuan terbit belum tersambung', 0);
+    else {
+      const out = await publishTrends(db, {master: opts.master, now});
+      push('trends', true, out.total ? `${out.x} tren X + ${out.youtube} video dikirim ke beranda` : 'Belum ada snapshot tren untuk dikirim', out.total);
+    }
+  } catch (e) {
+    push('trends', false, `Tren gagal dikirim (${(e as Error).message.replace(/[^A-Z0-9_]/g, '').slice(0, 40)})`, 0);
+  }
 
   const duration = Date.now() - started;
   const status = steps.every(s => s.ok) ? 'ok' : steps.some(s => s.ok) ? 'partial' : 'failed';

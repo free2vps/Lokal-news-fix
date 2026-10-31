@@ -23,7 +23,7 @@ export async function syncRss(db:Client,id:string){const s=await source(db,id);i
   // Legacy identity keys differ from feed GUID keys: preserve existing records and human edits.
   if((await db.execute({sql:'SELECT id FROM hub_items WHERE source_id=? AND normalized_original_url=? LIMIT 1',args:[id,normalized]})).rows.length){skipped++;continue;}
   const d=feedDate(item);const externalId=typeof item.guid==='string'&&item.guid.length<=500?item.guid:null;
-  const result=await acceptSourceItem(db,{sourceId:id,externalId,url:normalized,title,snippet:plain(item.contentSnippet||item.summary||item.content||'',1500)||null,sourcePublishedAt:d.published,sourceDateRaw:d.raw?.slice(0,150)||null});
+  const result=await acceptSourceItem(db,{sourceId:id,externalId,url:normalized,title,snippet:plain(item.contentSnippet||item.summary||item.content||'',1500)||null,sourcePublishedAt:d.published,sourceDateRaw:d.raw?.slice(0,150)||null,imageUrl:pickImage(item)});
   if(result.status==='inserted')inserted++;else skipped++;
  }
  return {value:{inserted,skipped,invalid,processed:items.length,publicationEnabled:false},count:inserted,status:invalid?'PARTIAL':'SUCCESS'};
@@ -62,4 +62,21 @@ export async function toggleSource(db:Client,id:string,active:boolean,opts:{veri
   await db.execute({sql:"UPDATE hub_sources SET is_active=1, rights_status=CASE WHEN rights_status='unknown' THEN 'permission_confirmed' ELSE rights_status END, updated_at=? WHERE id=?",args:[now,id]});
   const row=(await db.execute({sql:'SELECT rights_status FROM hub_sources WHERE id=?',args:[id]})).rows[0];
   return {active:true,rights:String(row?.rights_status||'unknown')};
+}
+
+/** Ambil URL gambar asli dari item feed. TIDAK menyalin/menyimpan gambar — hanya URL-nya. */
+export function pickImage(item:any):string|null{
+  const ok=(v:unknown)=>{if(typeof v!=='string')return null;const t=v.trim();if(!/^https:\/\//i.test(t)||t.length>600)return null;try{new URL(t);return t;}catch{return null;}};
+  const cands:string[]=[];
+  const push=(v:unknown)=>{const u=ok(v);if(u)cands.push(u);};
+  push(item?.enclosure?.url);push(item?.enclosure?.link);
+  for(const k of ['media:content','media:thumbnail'])  {
+    const raw=item?.[k];
+    if(Array.isArray(raw))for(const r of raw)push(r?.$?.url||r?.url);
+    else push(raw?.$?.url||raw?.url);
+  }
+  const html=String(item?.content||item?.summary||item?.['content:encoded']||'');
+  const m=html.match(/<img[^>]+src=["']([^"']+)["']/i);
+  if(m)push(m[1]);
+  return cands[0]||null;
 }

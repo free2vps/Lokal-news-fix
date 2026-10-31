@@ -6,6 +6,7 @@ import {prepareAutoEditor,saveAutoConfig,setAutoEditor,setRightsMode,autoEditorS
 import {quickSetup,quickStatus,QUICK_SETUP_CONFIRM} from '@/server/hub/domain/quick-setup';
 import {diagnosePull} from '@/server/hub/domain/pull-diagnose';
 import {diagnoseSelection} from '@/server/hub/domain/selection-diagnose';
+import {publishTrends} from '@/server/hub/domain/trends-publish';
 
 export const runtime='nodejs';export const dynamic='force-dynamic';export const maxDuration=60;
 const reply=(value:unknown)=>NextResponse.json(value,{headers:NO_STORE});
@@ -40,6 +41,7 @@ export async function POST(request:Request){
   try{
     const b=await readJson(request);
     if(b.action==='quickSetup'){return reply(await quickSetup(a.db,{rights:b.rights,enable:b.enable,issueTokens:b.issueTokens,minTier:b.minTier,windowHours:b.windowHours,actor:'owner',confirm:b.confirm}));}
+    if(b.action==='syncTrends'){return reply(await publishTrends(a.db,{master:process.env.HUB_MASTER_KEY}));}
     if(b.action==='diagnose'){return reply(await diagnosePull(a.db));}
     if(b.action==='diagnoseSelection'){return reply(await diagnoseSelection(a.db));}
     if(b.action==='prepare'){if(b.confirm!=='PREPARE AUTO EDITOR')return errorJson('Konfirmasi diperlukan.',400);return reply(await prepareAutoEditor(a.db));}

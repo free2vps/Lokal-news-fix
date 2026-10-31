@@ -1,6 +1,7 @@
 import {createHash} from 'node:crypto';
 import {mapHubArticle} from '@/lib/content-hub/mapping';
 import {slugify} from '@/lib/utils';
+import {topicOf} from './topic';
 import {resolveDeliveryTarget} from './delivery-target';
 import type {Deliver, DeliveryResult} from './publish-policy';
 
@@ -24,11 +25,17 @@ export function articleSlug(snapshot: Record<string, unknown>) {
 export function articleRow(snapshot: Record<string, unknown>) {
   const title = String(snapshot.editorialTitle || snapshot.sourceTitle || '');
   const summary = String(snapshot.editorialSummary || snapshot.sourceSnippet || '');
-  const category = String(snapshot.editorialCategory || '');
+  const category = String(snapshot.editorialCategory || '') || topicOf({title, summary});
+  // Gambar: HANYA URL asli milik penerbit (tidak disalin/di-rehost), dan hanya bila hak sumber
+  // sudah dinyatakan oleh pemilik (permission_confirmed). Atribusi diisi nama penerbit.
+  const rightsOk = String(snapshot.sourceRights || '') === 'permission_confirmed';
+  const image = rightsOk && typeof snapshot.sourceImageUrl === 'string' && /^https:\/\//i.test(snapshot.sourceImageUrl)
+    ? String(snapshot.sourceImageUrl) : null;
   const entertainment = /hiburan|film|musik|drakor|dracin|idol|seleb|game/i.test(category);
   return mapHubArticle({
     kind: 'article', title, summary, original_url: snapshot.originalUrl, published_at: snapshot.sourcePublishedAt,
-    source_name: '', original_title: snapshot.sourceTitle, editorial_category: category,
+    source_name: String(snapshot.sourceName || ''), original_title: snapshot.sourceTitle, editorial_category: category,
+    image_url: image, image_credit: image ? String(snapshot.sourceName || 'Penerbit sumber') : null,
     contentGroup: entertainment ? 'entertainment' : 'news',
   });
 }

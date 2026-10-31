@@ -50,6 +50,7 @@ CREATE TABLE IF NOT EXISTS hub_items (
   source_snippet TEXT,
   source_published_at TEXT,
   source_date_raw TEXT,
+  source_image_url TEXT,
   first_seen_at TEXT NOT NULL,
   last_seen_at TEXT NOT NULL,
   editorial_title TEXT,
@@ -114,3 +115,5 @@ CREATE TABLE IF NOT EXISTS hub_ai_provider_settings (
 );
 INSERT OR IGNORE INTO hub_schema_migrations(version, applied_at)
 VALUES ('001_initial', strftime('%Y-%m-%dT%H:%M:%fZ','now'));
+-- Basis data lama: kolom gambar asli (hanya URL, bukan salinan gambar).
+-- SQLite mengabaikan galat bila kolom sudah ada pada sebagian versi; jalankan sekali.
