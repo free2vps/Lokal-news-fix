@@ -7,8 +7,6 @@ const REASON:Record<string,string>={
   rights_not_permission_confirmed:'hak sumber belum permission_confirmed',
   date_outside_window:'tanggal di luar rentang',
   risk_needs_review:'sinyal risiko menunggu tinjauan',
-  value_tier_below_minimum:'kelas nilai di bawah minimum',
-  value_stale:'nilai editorial perlu dihitung ulang',
   editorial_text_missing:'judul/ringkasan editorial belum lengkap',
   region_not_allowlisted:'wilayah di luar allowlist',
   source_not_allowlisted:'sumber di luar allowlist',

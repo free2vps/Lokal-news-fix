@@ -4,16 +4,20 @@ import {useCallback,useEffect,useState} from 'react';
 type Step={step:string;ok:boolean;detail:string;count?:number;sources?:{id:string;name:string;ok:boolean;inserted:number;error?:string;processed?:number;skipped?:number;invalid?:number}[]};
 type Run={trigger:string;status:string;pulled:number;selected:number;published:number;durationMs:number;at:string;steps:Step[]};
 type DiagItem={title:string;state:string;dateOk:boolean;published:string|null;dateRaw:string|null};
-type Diag={at:string;windowHours:number;verdict:string;totals:{feedItems:number;siap:number;duplikat:number;tidak_valid:number};
-  sources:{id:string;name:string;feedUrl:string|null;ok:boolean;error?:string;feedItems:number;inWindow:number|null;counts:Record<string,number>;samples:DiagItem[]}[]};
+type Diag={at:string;windowHours:number;verdict:string;totals:{feedItems:number;siap:number;duplikat:number;tidak_valid:number};rights:Record<string,number>;
+  sources:{id:string;name:string;feedUrl:string|null;ok:boolean;error?:string;rights:string;feedItems:number;inWindow:number|null;counts:Record<string,number>;samples:DiagItem[];newestFeedAt:string|null;newestStoredAt:string|null;newestStoredTitle:string|null}[]};
 type SelGate={key:string;label:string;dropped:number;remaining:number};
-type SelDiag={at:string;windowHours:number;minTier:string;rightsMode:string;allowedRegions:string[];totalItems:number;rowsScanned:number;survivors:number;
+type SelDiag={at:string;windowHours:number;rightsMode:string;allowedRegions:string[];totalItems:number;rowsScanned:number;survivors:number;rules?:{key:string;label:string}[];
   gates:SelGate[];byTier:Record<string,number>;byRegion:Record<string,number>;verdict:string;suggestion:string;
-  sources:{id:string;name:string;region:string;rights:string;active:boolean;items:number;inWindow:number;passAll:boolean;blockedBy:string|null}[]};
+  sources:{id:string;name:string;region:string;rights:string;active:boolean;items:number;inWindow:number;passAll:boolean;blockedBy:string|null}[];
+  rightsSummary:{total:number;permissionConfirmed:number;metadataOnly:number;unknown:number;inactive:number};
+  regionalSurvivors:number;nationalSurvivors:number;
+  plan:{capacity:number;mixRegionalPct:number;regionalAvailable:number;nationalAvailable:number;regionalWillTake:number;nationalWillTake:number}};
 type Quick={configured:boolean;rssTotal:number;rssReady:number;rssActive:number;rightsConfirmed:number;editorEnabled:boolean;publishTarget?:'dedicated'|'fallback'|'none';hint:string};
 type Status={
   ready:boolean;quick:Quick|null;
-  config:{enabled:boolean;maxPerRun:number;maxPerDay:number;windowHours:number;minTier:string;regions:string[];aiPerRun:number};
+  config:{enabled:boolean;maxPerRun:number;maxPerDay:number;windowHours:number;minTier?:string;regions:string[];aiPerRun:number;mixRegionalPct?:number};
+  selectionRules?:{key:string;label:string}[];
   runs:Run[];sources:{total:number;permissionConfirmed:number;metadataOnly:number;unknown:number};publishedToday:number;
   policy:{hardMaxPerRun:number;hardMaxPerDay:number};
 };
@@ -89,6 +93,12 @@ export default function AutoEditorPanel(){
     </div>
     <p className="tiny">Satu tombol cukup untuk pemakaian sehari-hari. Semua langkah lain ada di <b>Lanjutan</b> di bawah.</p>
 
+    <div className="notice">
+      <p><b>Syarat terbit</b> <span className="tiny">(semua harus ya — tidak ada skor yang menentukan)</span></p>
+      <ul className="tiny">{(st?.selectionRules??[]).map(r=><li key={r.key}>• {r.label}</li>)}</ul>
+      <p className="tiny">Skor mutu (dulu disebut radar/kurasi) tetap dihitung sebagai informasi di menu <b>Tinjau Manual</b>, tetapi tidak lagi menjadi syarat terbit.</p>
+    </div>
+
     {result&&<div className="notice">
       <p><b>Sekali Atur selesai:</b> {result.included} sumber disiapkan, {result.skipped} dilewati.</p>
       {(result.tokens.automation||result.tokens.social)&&<>
@@ -109,11 +119,14 @@ export default function AutoEditorPanel(){
     {sel&&<div className="notice">
       <p><b>Diagnosa seleksi</b> <button className="button secondary" onClick={()=>setSel(null)}>tutup</button></p>
       <p><b>{sel.verdict}</b></p>
-      <p className="tiny">{sel.rowsScanned} dari {sel.totalItems} kandidat diperiksa · umur berita {sel.windowHours} jam · kelas minimum {sel.minTier} · wilayah {sel.allowedRegions.join(', ')} · hanya baca</p>
+      <p className="tiny">{sel.rowsScanned} dari {sel.totalItems} kandidat diperiksa · umur berita {sel.windowHours} jam · wilayah {sel.allowedRegions.join(', ')} · hanya baca</p>
+      <p className="tiny"><b>Hak sumber aktif:</b> {sel.rightsSummary.permissionConfirmed} terkonfirmasi · {sel.rightsSummary.metadataOnly} metadata saja · {sel.rightsSummary.unknown} belum jelas · {sel.rightsSummary.inactive} nonaktif (total {sel.rightsSummary.total})</p>
+      {sel.rightsSummary.permissionConfirmed===0&&<p className="tiny"><b>Ini penyebab utama:</b> belum ada satu pun sumber berstatus "hak terkonfirmasi", sedangkan mode hak = {sel.rightsMode}. Semua berita segar akan selalu gugur. Tandai "Hak pakai" di tab RSS Manager untuk sumber yang Anda nilai boleh.</p>}
       <table className="tiny"><thead><tr><th>Saringan</th><th>Gugur</th><th>Tersisa</th></tr></thead><tbody>
         {sel.gates.map(g=><tr key={g.key}><td>{g.label}</td><td>{g.dropped}</td><td>{g.remaining}</td></tr>)}
       </tbody></table>
       <p className="tiny">Kelas: {Object.entries(sel.byTier).map(([k,v])=>`${k} ${v}`).join(' · ')||'—'} · Wilayah: {Object.entries(sel.byRegion).map(([k,v])=>`${k} ${v}`).join(' · ')||'—'}</p>
+      <p className="tiny"><b>Porsi terbit:</b> target {sel.plan.mixRegionalPct}% daerah · tersedia {sel.regionalSurvivors} daerah + {sel.nationalSurvivors} nasional · putaran berikutnya akan mengambil ±{sel.plan.regionalWillTake} daerah + {sel.plan.nationalWillTake} nasional (kapasitas {sel.plan.capacity})</p>
       <p><b>Saran:</b> {sel.suggestion}</p>
       {!!sel.sources.length&&<details><summary className="tiny">Rincian per sumber ({sel.sources.length})</summary>
         <ul className="tiny">{sel.sources.map(x=><li key={x.id}>{x.passAll?'✔':'✖'} <b>{x.name}</b> ({x.region||'-'} · {x.rights}) — {x.items} kandidat, {x.inWindow} dalam jendela{x.blockedBy?` · terblokir: ${x.blockedBy}`:' · lolos'}</li>)}</ul>
@@ -126,7 +139,8 @@ export default function AutoEditorPanel(){
       <p><b>{diag.verdict}</b></p>
       <p className="tiny">{diag.totals.feedItems} item dibaca · {diag.totals.siap} baru · {diag.totals.duplikat} duplikat · {diag.totals.tidak_valid} tidak valid · jendela {diag.windowHours} jam · hanya baca</p>
       <ul className="tiny">{diag.sources.map(s=><li key={s.id}>
-        {s.ok?'•':'✖'} <b>{s.name}</b>{s.ok?` — ${s.feedItems} item di feed · ${s.counts.siap??0} baru · ${(s.counts.duplikat_url??0)+(s.counts.duplikat_identitas??0)} duplikat · ${(s.counts.url_invalid??0)+(s.counts.judul_kosong??0)} tidak valid · tersimpan ${s.inWindow??'?'} item dalam ${diag.windowHours} jam`:` — gagal (${s.error})`}
+        {s.ok?'•':'✖'} <b>{s.name}</b> <span className="tiny">[{s.rights}]</span>{s.ok?` — ${s.feedItems} item di feed · ${s.counts.siap??0} baru · ${(s.counts.duplikat_url??0)+(s.counts.duplikat_identitas??0)} duplikat · ${(s.counts.url_invalid??0)+(s.counts.judul_kosong??0)} tidak valid · tersimpan ${s.inWindow??'?'} item dalam ${diag.windowHours} jam · terbaru di feed ${s.newestFeedAt?String(s.newestFeedAt).slice(0,16).replace('T',' '):'—'} · terbaru tersimpan ${s.newestStoredAt?String(s.newestStoredAt).slice(0,16).replace('T',' '):'—'}`:` — gagal (${s.error})`}
+        {s.ok&&s.feedUrl&&<div className="tiny">feed: <code>{s.feedUrl}</code></div>}
         {!!s.samples.length&&<ul>{s.samples.map((it,i)=><li key={i} className="tiny">{it.state==='siap'?'✔ baru':'· '+it.state}: {it.title||'(tanpa judul)'} — {it.dateOk?String(it.published).slice(0,16).replace('T',' '):'tanggal tidak terbaca'}</li>)}</ul>}
       </li>)}</ul>
       <p className="tiny">Tidak ada satu baris pun yang ditulis ke database oleh diagnosa ini. Bila hasilnya "semua duplikat", redaktur memang benar: belum ada artikel baru di feed sejak tarikan terakhir.</p>
@@ -137,11 +151,12 @@ export default function AutoEditorPanel(){
         <label>Maksimum terbit per putaran<input type="number" min={1} max={st?.policy.hardMaxPerRun??12} value={cfg?.maxPerRun??8} onChange={e=>setCfg(c=>c?{...c,maxPerRun:Number(e.target.value)}:c)}/></label>
         <label>Maksimum per hari<input type="number" min={1} max={st?.policy.hardMaxPerDay??60} value={cfg?.maxPerDay??40} onChange={e=>setCfg(c=>c?{...c,maxPerDay:Number(e.target.value)}:c)}/></label>
         <label>Umur berita (jam)<input type="number" min={1} max={168} value={cfg?.windowHours??48} onChange={e=>setCfg(c=>c?{...c,windowHours:Number(e.target.value)}:c)}/></label>
-        <label>Kelas minimum<select value={cfg?.minTier??'curated'} onChange={e=>setCfg(c=>c?{...c,minTier:e.target.value}:c)}><option value="radar">Radar (paling longgar)</option><option value="curated">Kurasi</option><option value="evidence_backed">Berbukti</option></select></label>
+
+        <label>Porsi berita daerah (%)<input type="number" min={0} max={100} value={cfg?.mixRegionalPct??60} onChange={e=>setCfg(c=>c?{...c,mixRegionalPct:Number(e.target.value)}:c)}/></label>
         <label>Ringkasan AI per putaran<input type="number" min={0} max={5} value={cfg?.aiPerRun??3} onChange={e=>setCfg(c=>c?{...c,aiPerRun:Number(e.target.value)}:c)}/></label>
         <button className="button" disabled={busy}>Simpan konfigurasi</button>
       </form>
-      <p className="tiny">Bila beranda terasa kurang terisi: naikkan umur berita atau turunkan kelas minimum. Itu keputusan editorial Anda, bukan default sistem.</p>
+      <p className="tiny">Porsi daerah/nasional hanya mengatur <b>campuran</b>, bukan syarat. Bila beranda terasa kurang terisi: perbesar umur berita, atau nyalakan lebih banyak sumber di RSS Manager.</p>
       <p className="tiny">Pemicu otomatis (salah satu):</p>
       <pre className="tiny">{`POST /api/hub/auto-editor?action=run\nAuthorization: Bearer <token otomasi>`}</pre>
       <p className="tiny">Pakai GitHub Actions (berkas .github/workflows/hub-tick.yml di paket) atau Make — keduanya memanggil endpoint yang sama.</p>

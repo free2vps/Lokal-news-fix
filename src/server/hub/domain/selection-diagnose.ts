@@ -1,5 +1,6 @@
 import type {Client} from '@libsql/client';
-import {AUTO_EDITOR_POLICY, readAutoConfig} from './auto-editor';
+import {AUTO_EDITOR_POLICY, readAutoConfig, SELECTION_RULES} from './auto-editor';
+import {detectRegion} from '@/config/regions';
 
 /**
  * Diagnosa seleksi — BACA SAJA.
@@ -10,16 +11,25 @@ import {AUTO_EDITOR_POLICY, readAutoConfig} from './auto-editor';
  */
 export type Gate = {key: string; label: string; dropped: number; remaining: number};
 export type SelectionDiagnose = {
-  at: string; windowHours: number; minTier: string; rightsMode: string; allowedRegions: string[];
+  at: string; windowHours: number; rightsMode: string; allowedRegions: string[];
   totalItems: number; rowsScanned: number; survivors: number;
   gates: Gate[];
   byTier: Record<string, number>; byRegion: Record<string, number>;
   sources: {id: string; name: string; region: string; rights: string; active: boolean; items: number; inWindow: number; passAll: boolean; blockedBy: string | null}[];
   verdict: string;
   suggestion: string;
+  rightsSummary: {total: number; permissionConfirmed: number; metadataOnly: number; unknown: number; inactive: number};
+  rules: readonly {key: string; label: string}[]; regionalSurvivors: number; nationalSurvivors: number;
+  plan: {capacity: number; mixRegionalPct: number; regionalAvailable: number; nationalAvailable: number; regionalWillTake: number; nationalWillTake: number};
 };
 
-const TIER_RANK: Record<string, number> = {radar: 0, curated: 1, evidence_backed: 2};
+const PROVINCE_OF: Record<string, string> = {
+  bali: 'Bali', denpasar: 'Bali', badung: 'Bali', gianyar: 'Bali', tabanan: 'Bali', jembrana: 'Bali',
+  karangasem: 'Bali', buleleng: 'Bali', klungkung: 'Bali', bangli: 'Bali',
+  'sumbawa-barat': 'NTB', sumbawa: 'NTB', mataram: 'NTB', 'lombok-barat': 'NTB', 'lombok-tengah': 'NTB',
+  'lombok-timur': 'NTB', 'lombok-utara': 'NTB', bima: 'NTB', dompu: 'NTB', ntb: 'NTB',
+  ntt: 'NTT', kupang: 'NTT', manggarai: 'NTT', ende: 'NTT', sikka: 'NTT', sumba: 'NTT', flores: 'NTT',
+};
 const LABEL: Record<string, string> = {
   source_missing: 'sumbernya tidak dikenal',
   already_in_outbox: 'sudah pernah masuk antrean terbit',
@@ -28,8 +38,6 @@ const LABEL: Record<string, string> = {
   rights_unknown: 'hak sumber belum jelas',
   rights_not_permission_confirmed: 'hak sumber belum terkonfirmasi',
   risk_needs_review: 'profil risiko minta tinjauan',
-  value_tier_below_minimum: 'kelas kelayakan di bawah batas minimum',
-  region_not_allowlisted: 'wilayah di luar daftar prioritas',
   text_missing: 'judul atau ringkasan kosong',
 };
 
@@ -50,7 +58,7 @@ export async function diagnoseSelection(db: Client, opts: {now?: number; sampleP
   const allowed = cfg.regions.slice();
   const gatesOrder = ['source_missing', 'already_in_outbox', 'date_outside_window', 'date_unreadable', 'rights_unknown',
     ...(cfg.rightsMode === 'permission_confirmed' ? ['rights_not_permission_confirmed'] : []),
-    'risk_needs_review', 'value_tier_below_minimum', 'region_not_allowlisted', 'text_missing'] as const;
+    'risk_needs_review', 'text_missing'] as const;
 
   const sources = new Map<string, {name: string; region: string; rights: string; active: boolean}>();
   for (const s of (await db.execute('SELECT id,name,region,rights_status,is_active FROM hub_sources')).rows) {
@@ -71,6 +79,7 @@ export async function diagnoseSelection(db: Client, opts: {now?: number; sampleP
   }
 
   const dropped: Record<string, number> = {};
+  let regionalSurvivors = 0, nationalSurvivors = 0;
   const byTier: Record<string, number> = {};
   const byRegion: Record<string, number> = {};
   const perSource = new Map<string, {items: number; inWindow: number; passAll: boolean; blockedBy: string | null}>();
@@ -106,14 +115,16 @@ export async function diagnoseSelection(db: Client, opts: {now?: number; sampleP
         if (src.rights === 'unknown') block = 'rights_unknown';
         else if (cfg.rightsMode === 'permission_confirmed' && src.rights !== 'permission_confirmed') block = 'rights_not_permission_confirmed';
         else if ((profile?.risk as Record<string, unknown>)?.status === 'needs_review') block = 'risk_needs_review';
-        else if ((TIER_RANK[tier] ?? 0) < (TIER_RANK[cfg.minTier] ?? 1)) block = 'value_tier_below_minimum';
-        else if (value?.stale === true) block = 'value_tier_below_minimum';
-        else if (!regions.some(r => allowed.includes(r))) block = 'region_not_allowlisted';
         else if (!title || !summary) block = 'text_missing';
       }
     }
     if (block) { dropped[block] = (dropped[block] || 0) + 1; if (!stat.blockedBy) stat.blockedBy = block; }
-    else { survivors += 1; stat.passAll = true; }
+    else {
+      survivors += 1; stat.passAll = true;
+      const province = PROVINCE_OF[String(detectRegion(`${row.source_title || ''} ${row.source_snippet || ''}`) || '')]
+        || (Array.isArray(parse(row.profile_json)?.regions) ? ((parse(row.profile_json)!.regions as unknown[]).map(r => PROVINCE_OF[String(r)]).find(Boolean) || null) : null);
+      if (province && allowed.includes(province)) regionalSurvivors += 1; else nationalSurvivors += 1;
+    }
   }
 
   const gates: Gate[] = [];
@@ -124,6 +135,14 @@ export async function diagnoseSelection(db: Client, opts: {now?: number; sampleP
     gates.push({key, label: LABEL[key] || key, dropped: n, remaining});
   }
 
+  const capacity = Math.min(cfg.maxPerRun, cfg.maxPerDay);
+  const regionalTarget = Math.round((capacity * cfg.mixRegionalPct) / 100);
+  const plan = {
+    capacity, mixRegionalPct: cfg.mixRegionalPct,
+    regionalAvailable: regionalSurvivors, nationalAvailable: nationalSurvivors,
+    regionalWillTake: Math.min(regionalSurvivors, regionalTarget),
+    nationalWillTake: Math.min(nationalSurvivors, capacity - Math.min(regionalSurvivors, regionalTarget)),
+  };
   const list = [...perSource.entries()].map(([id, s]) => ({
     id, name: sources.get(id)?.name || '(tidak dikenal)', region: sources.get(id)?.region || '',
     rights: sources.get(id)?.rights || 'unknown', active: sources.get(id)?.active ?? false,
@@ -145,7 +164,6 @@ export async function diagnoseSelection(db: Client, opts: {now?: number; sampleP
     rights_not_permission_confirmed: 'Hak sumber belum dinyatakan. Tandai "Hak pakai" di RSS Manager untuk sumber yang Anda nilai boleh, atau ubah mode hak di Lanjutan.',
     rights_unknown: 'Sumber berstatus hak tidak jelas sehingga selalu dilewati.',
     value_tier_below_minimum: `Semua berita dinilai "radar". Turunkan "Kelas minimum" ke Radar di Lanjutan, atau biarkan penilaian otomatis menaikkannya.`,
-    region_not_allowlisted: `Wilayah berita tidak termasuk ${allowed.join(', ')}. Ubah daftar wilayah di konfigurasi editor bila portal Anda juga memuat wilayah lain.`,
     text_missing: 'Judul/ringkasan sumber kosong sehingga tidak bisa diolah.',
     already_in_outbox: 'Berita ini sudah pernah dikirim/diterbitkan sehingga sengaja tidak diulang.',
     risk_needs_review: 'Profil risiko menandai berita ini butuh tinjauan manusia.',
@@ -154,7 +172,16 @@ export async function diagnoseSelection(db: Client, opts: {now?: number; sampleP
     ? 'Tekan "Jalankan sekarang" — kandidatnya sudah siap.'
     : tips[biggest?.key || ''] || 'Periksa rincian per sumber di bawah untuk melihat sumber mana yang menyumbang blokir terbesar.';
 
-  return {at: new Date(now).toISOString(), windowHours: cfg.windowHours, minTier: cfg.minTier, rightsMode: cfg.rightsMode, allowedRegions: allowed,
+  const allRights = [...sources.values()];
+  const rightsSummary = {
+    total: allRights.length,
+    permissionConfirmed: allRights.filter(x => x.rights === 'permission_confirmed' && x.active).length,
+    metadataOnly: allRights.filter(x => x.rights === 'metadata_only' && x.active).length,
+    unknown: allRights.filter(x => x.rights === 'unknown' && x.active).length,
+    inactive: allRights.filter(x => !x.active).length,
+  };
+  return {at: new Date(now).toISOString(), windowHours: cfg.windowHours, rightsMode: cfg.rightsMode, allowedRegions: allowed, rules: SELECTION_RULES, rightsSummary,
+    regionalSurvivors, nationalSurvivors, plan,
     totalItems, rowsScanned: rows.length, survivors, gates, byTier, byRegion,
     sources: list.slice(0, 40), verdict, suggestion};
 }

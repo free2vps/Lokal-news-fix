@@ -7,6 +7,7 @@ import {syncRss} from './rss-runtime';
 import {defaultDeliver, type Deliver} from './publish-policy';
 import {enqueuePublished, socialReady} from './social-pull';
 import {sourceTime} from './editorial';
+import {detectRegion} from '@/config/regions';
 
 /**
  * Tahap 10 — Redaktur Otomatis.
@@ -16,18 +17,23 @@ import {sourceTime} from './editorial';
  * AI hanya dipakai untuk berita prioritas Bali/NTB/NTT dalam batas kuota harian.
  * Yang tidak pernah dilakukan: mengarang isi, menyalin fulltext, menghapus edit manual.
  */
+/** Porsi berita daerah (Bali/NTB/NTT) dari yang terbit, sisanya nasional/umum. */
+export const MIX_DEFAULT = 60;
+export const MIX_MIN = 0;
+export const MIX_MAX = 100;
+
 export const AUTO_EDITOR_POLICY = {
   maxPerRun: 8,
   hardMaxPerRun: 12,
   maxPerDay: 40,
   hardMaxPerDay: 60,
   windowHours: 48,
-  minTier: 'curated' as const,
+  minTier: 'curated' as const, mixRegionalPct: MIX_DEFAULT,
   regions: ['Bali', 'NTB', 'NTT'],
   rightsMode: 'permission_confirmed' as const,
   aiPerRun: 3,
   rssSourcesPerRun: 25,
-  batchesPerRun: 2,
+  batchesPerRun: 8,
   budgetMs: 60000,
   bulletsMax: 3,
   humansKeepEdits: true,
@@ -39,6 +45,7 @@ export type AutoConfig = {
   enabled: boolean;
   maxPerRun: number; maxPerDay: number; windowHours: number;
   minTier: 'radar' | 'curated' | 'evidence_backed';
+  mixRegionalPct: number;
   regions: string[];
   rightsMode: 'permission_confirmed' | 'metadata_only';
   aiPriorityOnly: boolean;
@@ -52,6 +59,7 @@ export const DEFAULT_AUTO_CONFIG: AutoConfig = {
   maxPerDay: AUTO_EDITOR_POLICY.maxPerDay,
   windowHours: AUTO_EDITOR_POLICY.windowHours,
   minTier: AUTO_EDITOR_POLICY.minTier,
+  mixRegionalPct: MIX_DEFAULT,
   regions: [...AUTO_EDITOR_POLICY.regions],
   rightsMode: AUTO_EDITOR_POLICY.rightsMode,
   aiPriorityOnly: true,
@@ -59,12 +67,52 @@ export const DEFAULT_AUTO_CONFIG: AutoConfig = {
   updatedAt: null, updatedBy: null,
 };
 
-const TIER_RANK: Record<string, number> = {radar: 0, curated: 1, evidence_backed: 2};
+/**
+ * Syarat terbit — SEMUA harus terpenuhi. Tidak ada skor 0–100 yang menentukan penerbitan.
+ * Skor editorial (dulu "radar/kurasi/berbukti") tetap dihitung sebagai informasi di menu
+ * Tinjau Manual, tetapi TIDAK lagi menjadi syarat dan tidak pernah menghalangi terbit.
+ */
+/** Slug wilayah (config/regions.ts) → provinsi prioritas. Dipakai untuk memilah daerah vs nasional. */
+const PROVINCE_OF: Record<string, 'Bali' | 'NTB' | 'NTT'> = {
+  bali: 'Bali', denpasar: 'Bali', badung: 'Bali', gianyar: 'Bali', tabanan: 'Bali', jembrana: 'Bali',
+  karangasem: 'Bali', buleleng: 'Bali', klungkung: 'Bali', bangli: 'Bali',
+  'sumbawa-barat': 'NTB', sumbawa: 'NTB', mataram: 'NTB', 'lombok-barat': 'NTB', 'lombok-tengah': 'NTB',
+  'lombok-timur': 'NTB', 'lombok-utara': 'NTB', bima: 'NTB', dompu: 'NTB', ntb: 'NTB',
+  ntt: 'NTT', kupang: 'NTT', manggarai: 'NTT', ende: 'NTT', sikka: 'NTT', sumba: 'NTT', flores: 'NTT',
+};
+
+/**
+ * Wilayah TIDAK lagi menjadi syarat lolos. Wilayah hanya menentukan PORSI:
+ * sebagian besar berita daerah (Bali/NTB/NTT), sisanya berita nasional/umum.
+ * Keputusan pemilik: "60 berita daerah dan 40 berita nasional juga bagus".
+ */
+export const SELECTION_RULES = [
+  {key: 'rights', label: 'Hak sumber sudah Anda nyatakan boleh'},
+  {key: 'freshness', label: 'Umur berita masih dalam batas (lihat Lanjutan)'},
+  {key: 'date', label: 'Tanggal terbit ada dan terbaca'},
+  {key: 'text', label: 'Judul dan ringkasan sumber memadai'},
+  {key: 'not_published', label: 'Belum pernah terbit di portal'},
+  {key: 'risk', label: 'Tidak ditandai butuh tinjauan risiko'},
+] as const;
+
 const clamp = (v: unknown, lo: number, hi: number, fallback: number) => {
   const n = Math.floor(Number(v));
   return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : fallback;
 };
 const parse = (raw: unknown) => { try { return raw ? JSON.parse(String(raw)) : null; } catch { return null; } };
+
+/** Kursor tahan-lama: tanpa ini, batch selalu memproses 25 item pertama dan sisanya tidak pernah dinilai. */
+async function readCursor(db: Client, name: string): Promise<string> {
+  try {
+    const r = (await db.execute({sql: 'SELECT cursor FROM hub_auto_cursor_v2 WHERE name=?', args: [name]})).rows[0];
+    return r ? String(r.cursor || '') : '';
+  } catch { return ''; }
+}
+async function writeCursor(db: Client, name: string, cursor: string | null, now: number) {
+  const value = cursor ?? '';
+  await db.execute({sql: 'INSERT INTO hub_auto_cursor_v2(name,cursor,swept_at) VALUES(?,?,?) ON CONFLICT(name) DO UPDATE SET cursor=excluded.cursor, swept_at=CASE WHEN excluded.cursor=\'\' THEN excluded.swept_at ELSE hub_auto_cursor_v2.swept_at END',
+    args: [name, value, new Date(now).toISOString()]});
+}
 
 export async function prepareAutoEditor(db: Client) {
   await db.execute(`CREATE TABLE IF NOT EXISTS hub_auto_editor_config_v2(
@@ -73,7 +121,11 @@ export async function prepareAutoEditor(db: Client) {
     window_hours INTEGER NOT NULL DEFAULT 48, min_tier TEXT NOT NULL DEFAULT 'curated',
     regions_json TEXT NOT NULL DEFAULT '["Bali","NTB","NTT"]', rights_mode TEXT NOT NULL DEFAULT 'permission_confirmed',
     ai_priority_only INTEGER NOT NULL DEFAULT 1, ai_per_run INTEGER NOT NULL DEFAULT 3,
+    mix_regional_pct INTEGER NOT NULL DEFAULT 60,
     updated_at TEXT, updated_by TEXT)`);
+  // Basis data lama belum punya kolom porsi campuran; tambahkan tanpa menghapus data.
+  try { await db.execute('ALTER TABLE hub_auto_editor_config_v2 ADD COLUMN mix_regional_pct INTEGER NOT NULL DEFAULT 60'); } catch { /* sudah ada */ }
+  await db.execute(`CREATE TABLE IF NOT EXISTS hub_auto_cursor_v2(name TEXT PRIMARY KEY, cursor TEXT NOT NULL, swept_at TEXT)`);
   await db.execute(`CREATE TABLE IF NOT EXISTS hub_auto_editorial_v2(
     item_id TEXT NOT NULL, item_version INTEGER NOT NULL, title TEXT NOT NULL, summary TEXT NOT NULL,
     bullets_json TEXT NOT NULL, method TEXT NOT NULL, created_at TEXT NOT NULL,
@@ -126,6 +178,7 @@ export async function readAutoConfig(db: Client): Promise<AutoConfig> {
     rightsMode: String(r.rights_mode) === 'metadata_only' ? 'metadata_only' : 'permission_confirmed',
     aiPriorityOnly: Number(r.ai_priority_only) !== 0,
     aiPerRun: clamp(r.ai_per_run, 0, 5, DEFAULT_AUTO_CONFIG.aiPerRun),
+    mixRegionalPct: clamp(r.mix_regional_pct, MIX_MIN, MIX_MAX, MIX_DEFAULT),
     updatedAt: r.updated_at ? String(r.updated_at) : null,
     updatedBy: r.updated_by ? String(r.updated_by) : null,
   };
@@ -142,11 +195,12 @@ export async function saveAutoConfig(db: Client, patch: Record<string, unknown>,
     minTier: ['radar', 'curated', 'evidence_backed'].includes(String(patch.minTier)) ? patch.minTier as AutoConfig['minTier'] : cur.minTier,
     regions: Array.isArray(patch.regions) ? patch.regions.map(String).filter(r => ['Bali', 'NTB', 'NTT'].includes(r)) : cur.regions,
     aiPerRun: patch.aiPerRun === undefined ? cur.aiPerRun : clamp(patch.aiPerRun, 0, 5, cur.aiPerRun),
+    mixRegionalPct: patch.mixRegionalPct === undefined ? cur.mixRegionalPct : clamp(patch.mixRegionalPct, MIX_MIN, MIX_MAX, cur.mixRegionalPct),
     updatedAt: new Date(now).toISOString(), updatedBy: actor.slice(0, 100),
   };
   if (!next.regions.length) next.regions = [...AUTO_EDITOR_POLICY.regions];
-  await db.execute({sql: `UPDATE hub_auto_editor_config_v2 SET max_per_run=?,max_per_day=?,window_hours=?,min_tier=?,regions_json=?,ai_priority_only=?,ai_per_run=?,updated_at=?,updated_by=? WHERE id='default'`,
-    args: [next.maxPerRun, next.maxPerDay, next.windowHours, next.minTier, JSON.stringify(next.regions), next.aiPriorityOnly ? 1 : 0, next.aiPerRun, next.updatedAt, next.updatedBy]});
+  await db.execute({sql: `UPDATE hub_auto_editor_config_v2 SET max_per_run=?,max_per_day=?,window_hours=?,min_tier=?,regions_json=?,ai_priority_only=?,ai_per_run=?,mix_regional_pct=?,updated_at=?,updated_by=? WHERE id='default'`,
+    args: [next.maxPerRun, next.maxPerDay, next.windowHours, next.minTier, JSON.stringify(next.regions), next.aiPriorityOnly ? 1 : 0, next.aiPerRun, next.mixRegionalPct, next.updatedAt, next.updatedBy]});
   return next;
 }
 
@@ -189,9 +243,63 @@ export function keyPoints(snippet: string, max = AUTO_EDITOR_POLICY.bulletsMax) 
   return out;
 }
 
+
+/** Potongan khas halaman berita yang tidak berguna di portal agregator. */
+const NOISE = /(baca juga|simak juga|lihat juga|selengkapnya di|scroll to resume|advertisement|iklan\b|baca:\s)/i;
+
+/** Ringkasan ekstraktif sering berakhir menggantung ("... yang"). Rapikan batasnya. */
+export function cleanSummary(input: string) {
+  let text = String(input || '').replace(/\s+/g, ' ').trim();
+  const noise = text.search(NOISE);
+  if (noise > 80) text = text.slice(0, noise).trim();
+  if (text && !/[.!?"'”’)]$/.test(text)) {
+    const cut = Math.max(text.lastIndexOf('. '), text.lastIndexOf('! '), text.lastIndexOf('? '));
+    if (cut > 80) return text.slice(0, cut + 1).trim();
+    // Kutipan terpotong: akhiri di batas kata dengan penanda potong, bukan kata menggantung.
+    text = text.slice(0, text.lastIndexOf(' ') > 0 ? text.lastIndexOf(' ') : text.length).trim();
+    if (text) text += '…';
+  }
+  return text;
+}
+
+function tokenSet(text: string) {
+  const words = String(text || '').toLowerCase().replace(/[^\p{L}\p{N} ]/gu, ' ').split(/\s+/);
+  const out = new Set<string>();
+  for (const w of words) {
+    if (w.length < 4) continue;
+    out.add(w.replace(/(nya|kah|lah|pun|para)$/, ''));
+  }
+  return out;
+}
+
+/**
+ * Poin penting yang menempel pada judul: kalimat diambil dari ringkasan sumber,
+ * diurutkan menurut kesamaan kata dengan judul, dan kalimat pengganggu dibuang.
+ */
+export function keyPointsFor(title: string, snippet: string, max = AUTO_EDITOR_POLICY.bulletsMax) {
+  const target = tokenSet(title);
+  const sentences = normalizeText(snippet, 3000)
+    .split(/(?<=[.!?])\s+/)
+    .map(x => x.trim())
+    .filter(x => x.length >= 35 && x.length <= 220 && !NOISE.test(x));
+  const scored = sentences.map(x => ({x, overlap: [...tokenSet(x)].filter(w => target.has(w)).length}));
+  const picked: string[] = [];
+  for (const item of scored.filter(s => s.overlap > 0).sort((a, b) => b.overlap - a.overlap)) {
+    if (picked.length >= max) break;
+    if (!picked.includes(item.x)) picked.push(item.x);
+  }
+  if (picked.length < 2) {
+    for (const item of scored) {
+      if (picked.length >= max) break;
+      if (!picked.includes(item.x)) picked.push(item.x);
+    }
+  }
+  return picked;
+}
+
 type Candidate = {
   id: string; version: number; title: string; summary: string; bullets: string[]; method: 'manual' | 'extractive' | 'ai';
-  url: string; publishedAt: string; category: string | null; region: string; regions: string[];
+  url: string; publishedAt: string; category: string | null; region: string; regions: string[]; scope: 'daerah' | 'nasional';
   tier: string; sourceId: string; sourceName: string; rights: string; snippet: string; dateRaw: string | null; priority: boolean;
 };
 
@@ -207,6 +315,7 @@ export async function runAutoEditor(db: Client, opts: RunOptions = {}) {
   const now = opts.now ?? started;
   const steps: StepResult[] = [];
   const push = (step: string, ok: boolean, detail: string, count?: number) => { steps.push({step, ok, detail, count} as StepResult); };
+  const budgetLimit = opts.budgetMs ?? AUTO_EDITOR_POLICY.budgetMs;
   const cfg = await readAutoConfig(db);
   if (!cfg.enabled) {
     return {status: 'disabled', runAt: new Date(now).toISOString(), durationMs: 0, steps: [{step: 'switch', ok: true, detail: 'Redaktur otomatis NONAKTIF — tidak ada yang ditarik, tidak ada yang terbit', count: 0}] as StepResult[],
@@ -216,7 +325,7 @@ export async function runAutoEditor(db: Client, opts: RunOptions = {}) {
   // 1. Tarik semua sumber RSS aktif yang haknya sudah jelas.
   let pulled = 0;
   if (!opts.skipPull) {
-    const budget = opts.budgetMs ?? AUTO_EDITOR_POLICY.budgetMs;
+    const budget = budgetLimit;
     try {
       const sources = (await db.execute({sql: "SELECT id,name,rights_status FROM hub_sources WHERE source_kind='rss' AND is_active=1 AND discovered_type='rss' AND feed_url IS NOT NULL AND rights_status!='unknown' ORDER BY updated_at DESC", args: []})).rows;
       const limit = clamp(opts.maxSources, 1, 60, AUTO_EDITOR_POLICY.rssSourcesPerRun);
@@ -251,15 +360,35 @@ export async function runAutoEditor(db: Client, opts: RunOptions = {}) {
   // 2-3. Profil & nilai (dipakai untuk kriteria wilayah dan kelas kelayakan).
   try {
     if ((await profileStatus(db)).ready) {
-      for (let i = 0; i < AUTO_EDITOR_POLICY.batchesPerRun; i++) { const r = await profileBatch(db, ''); if (!r.processed) break; }
-      push('profiles', true, 'Profil wilayah/risiko diperbarui', 0);
+      let cursor = await readCursor(db, 'profiles');
+      let done = 0;
+      for (let i = 0; i < AUTO_EDITOR_POLICY.batchesPerRun; i++) {
+        if (Date.now() - started > budgetLimit) break;
+        const r = await profileBatch(db, cursor);
+        if (!r.processed) break;
+        done += r.processed;
+        cursor = r.nextCursor ?? '';
+        if (r.nextCursor === null) break;
+      }
+      await writeCursor(db, 'profiles', cursor, now);
+      push('profiles', true, `Profil wilayah/risiko diperbarui untuk ${done} berita (kursor tersimpan)`, done);
     } else push('profiles', false, 'Tabel profil belum disiapkan — wilayah memakai wilayah sumber', 0);
   } catch { push('profiles', false, 'Profil dilewati', 0); }
   try {
     if ((await valueStatus(db)).ready) {
-      for (let i = 0; i < AUTO_EDITOR_POLICY.batchesPerRun; i++) { const r = await valueBatch(db, ''); if (!r.processed) break; }
-      push('values', true, `Kelas kelayakan diperbarui (batas minimum: ${TIER_LABEL[cfg.minTier]})`, 0);
-    } else push('values', false, 'Tabel nilai belum disiapkan — semua berita dianggap radar', 0);
+      let cursor = await readCursor(db, 'values');
+      let done = 0;
+      for (let i = 0; i < AUTO_EDITOR_POLICY.batchesPerRun; i++) {
+        if (Date.now() - started > budgetLimit) break;
+        const r = await valueBatch(db, cursor);
+        if (!r.processed) break;
+        done += r.processed;
+        cursor = r.nextCursor ?? '';
+        if (r.nextCursor === null) break;
+      }
+      await writeCursor(db, 'values', cursor, now);
+      push('values', true, `Penilaian mutu diperbarui untuk ${done} berita (informasi saja — bukan syarat terbit)`, done);
+    } else push('values', false, 'Tabel penilaian mutu belum disiapkan — tidak masalah, tidak dipakai untuk terbit', 0);
   } catch { push('values', false, 'Penilaian dilewati', 0); }
 
   // 4. AI hanya untuk prioritas, dalam batas kuota (bila kunci tersedia).
@@ -314,30 +443,33 @@ export async function runAutoEditor(db: Client, opts: RunOptions = {}) {
     if (cfg.rightsMode === 'permission_confirmed' && src.rights !== 'permission_confirmed') { exclude('rights_not_permission_confirmed'); continue; }
     const profile = parse(row.profile_json);
     if (profile?.risk?.status === 'needs_review') { exclude('risk_needs_review'); continue; }
+    // Skor editorial sengaja TIDAK dipakai sebagai syarat terbit (keputusan pemilik: pilihan C).
     const value = parse(row.value_json);
     const tier = value?.tier ? String(value.tier) : 'radar';
-    if ((TIER_RANK[tier] ?? 0) < (TIER_RANK[cfg.minTier] ?? 1)) { exclude('value_tier_below_minimum'); continue; }
-    if (value?.stale === true) { exclude('value_stale'); continue; }
     const profileRegions: string[] = Array.isArray(profile?.regions) ? profile.regions.map(String) : [];
-    const regions = profileRegions.length ? profileRegions : (src.region ? [src.region] : []);
-    if (!regions.some(r => cfg.regions.includes(r))) { exclude('region_not_allowlisted'); continue; }
+    // Wilayah dipakai untuk PORSI (daerah vs nasional), bukan syarat gugur.
+    const contentProvince = PROVINCE_OF[String(detectRegion(`${row.source_title || ''} ${row.source_snippet || ''}`) || '')] || null;
+    const profileProvince = profileRegions.map(r => PROVINCE_OF[r]).find(Boolean) || null;
+    const province = contentProvince || profileProvince || null;
+    const scope: 'daerah' | 'nasional' = province && cfg.regions.includes(province) ? 'daerah' : 'nasional';
+    const regions = province ? [province] : (profileRegions.length ? profileRegions : (src.region ? [src.region] : []));
 
     const manualTitle = normalizeText(row.editorial_title, 240);
     const manualSummary = normalizeText(row.editorial_summary, 1200);
     const snippet = String(row.source_snippet || '');
     const title = manualTitle || normalizeText(row.source_title, 240);
-    const summary = manualSummary || extractiveSummary(snippet || title, 420);
+    const summary = manualSummary || cleanSummary(extractiveSummary(snippet || title, 420));
     if (!title || !summary) { exclude('text_missing'); continue; }
     const method: Candidate['method'] = manualTitle && manualSummary ? 'manual' : 'extractive';
     candidates.push({
-      id, version, title, summary, bullets: keyPoints(snippet), method,
+      id, version, title, summary, bullets: keyPointsFor(title, snippet), method,
       url: String(row.original_url || ''), publishedAt: String(stamp), category: row.editorial_category ? String(row.editorial_category) : null,
-      region: regions[0], regions, tier, sourceId: String(row.source_id), sourceName: src.name, rights: src.rights,
-      snippet, dateRaw: row.source_date_raw ? String(row.source_date_raw) : null,
-      priority: regions.some(r => (AUTO_EDITOR_POLICY.regions as readonly string[]).includes(r)),
+      region: regions[0], regions, scope, tier, sourceId: String(row.source_id), sourceName: src.name, rights: src.rights,
+      snippet, dateRaw: row.source_date_raw ? String(row.source_date_raw) : null, priority: scope === 'daerah',
     });
   }
-  candidates.sort((a, b) => (Number(b.priority) - Number(a.priority)) || ((TIER_RANK[b.tier] ?? 0) - (TIER_RANK[a.tier] ?? 0)) || (Date.parse(b.publishedAt) - Date.parse(a.publishedAt)));
+  const byFresh = (a: Candidate, b: Candidate) => Date.parse(b.publishedAt) - Date.parse(a.publishedAt);
+  candidates.sort((a, b) => (Number(b.priority) - Number(a.priority)) || byFresh(a, b));
 
   for (const c of candidates) {
     await db.execute({sql: 'INSERT INTO hub_auto_editorial_v2(item_id,item_version,title,summary,bullets_json,method,created_at) VALUES(?,?,?,?,?,?,?) ON CONFLICT(item_id,item_version) DO UPDATE SET title=excluded.title,summary=excluded.summary,bullets_json=excluded.bullets_json,method=excluded.method,created_at=excluded.created_at',
@@ -350,9 +482,26 @@ export async function runAutoEditor(db: Client, opts: RunOptions = {}) {
   let sentToday = 0;
   try { sentToday = Number((await db.execute({sql: "SELECT count(*) n FROM hub_publish_outbox WHERE status IN ('sending','published') AND created_at>=?", args: [dayStart.toISOString()]})).rows[0].n); } catch { sentToday = 0; }
   const room = Math.max(0, cfg.maxPerDay - sentToday);
-  const picked = candidates.slice(0, Math.min(cfg.maxPerRun, room));
+  const capacity = Math.min(cfg.maxPerRun, room);
+  const regional = candidates.filter(c => c.scope === 'daerah').sort(byFresh);
+  const national = candidates.filter(c => c.scope === 'nasional').sort(byFresh);
+  const regionalTarget = Math.round((capacity * cfg.mixRegionalPct) / 100);
+  const nationalTarget = Math.max(0, capacity - regionalTarget);
+  const picked: Candidate[] = [];
+  picked.push(...regional.slice(0, regionalTarget));
+  picked.push(...national.slice(0, nationalTarget));
+  // Bila salah satu sisi kurang, sisa kapasitas diisi dari sisi lain — KECUALI porsi disetel ekstrem
+  // (100% = hanya daerah, 0% = hanya nasional), agar angka itu benar-benar berarti.
+  if (picked.length < capacity && cfg.mixRegionalPct > MIX_MIN && cfg.mixRegionalPct < MIX_MAX) {
+    const rest = [...regional.slice(regionalTarget), ...national.slice(Math.max(0, capacity - regionalTarget))].sort(byFresh);
+    for (const c of rest) { if (picked.length >= capacity) break; if (!picked.includes(c)) picked.push(c); }
+  }
+  const tookRegional = picked.filter(c => c.scope === 'daerah').length;
+  const tookNational = picked.length - tookRegional;
   if (!room && candidates.length) reasons.daily_limit_reached = candidates.length;
-  push('select', true, picked.length ? `${picked.length} dipilih untuk terbit (sisa kuota hari ini ${room})` : `Tidak ada yang dipilih (sisa kuota hari ini ${room})`, picked.length);
+  push('select', true, picked.length
+    ? `${picked.length} dipilih: ${tookRegional} daerah + ${tookNational} nasional (target ${cfg.mixRegionalPct}:${100 - cfg.mixRegionalPct}, sisa kuota hari ini ${room})`
+    : `Tidak ada yang dipilih (sisa kuota hari ini ${room})`, picked.length);
 
   // 7. Terbit otomatis + catat outbox (idempoten per item+versi).
   let published = 0, duplicates = 0;
@@ -416,13 +565,15 @@ export async function runAutoEditor(db: Client, opts: RunOptions = {}) {
   return {
     status, runAt: new Date(now).toISOString(), durationMs: duration, steps,
     pulled, candidates: candidates.length, selected: picked.length, published, duplicates, failed: failed.length,
-    reasons, config: cfg, approvalRemainsHuman: false, autoPublication: true, storeError,
+    reasons, config: cfg, approvalRemainsHuman: false, autoPublication: true, storeError, selectionRules: SELECTION_RULES,
+    composition: {regional: picked.filter(c => c.scope === 'daerah').length, national: picked.filter(c => c.scope === 'nasional').length, target: cfg.mixRegionalPct},
+    available: {regional: regional.length, national: national.length},
     note: 'Terbit otomatis: artikel masuk database situs tanpa klik persetujuan. Semua keputusan tercatat di audit.',
   };
 }
 
 export async function autoEditorStatus(db: Client) {
-  const empty = {ready: false, config: {...DEFAULT_AUTO_CONFIG}, runs: [], policy: AUTO_EDITOR_POLICY, sources: {total: 0, permissionConfirmed: 0, metadataOnly: 0, unknown: 0}, publishedToday: 0, tierLabels: TIER_LABEL};
+  const empty = {ready: false, config: {...DEFAULT_AUTO_CONFIG}, runs: [], policy: AUTO_EDITOR_POLICY, sources: {total: 0, permissionConfirmed: 0, metadataOnly: 0, unknown: 0}, publishedToday: 0, tierLabels: TIER_LABEL, selectionRules: SELECTION_RULES};
   if (!(await autoEditorReady(db))) return empty;
   const config = await readAutoConfig(db);
   const runs = (await db.execute('SELECT trigger,status,pulled,selected,published,duration_ms,created_at,steps_json FROM hub_auto_editor_runs_v2 ORDER BY created_at DESC LIMIT 8')).rows.map(r => ({
@@ -444,5 +595,5 @@ export async function autoEditorStatus(db: Client) {
   const dayStart = new Date(); dayStart.setUTCHours(0, 0, 0, 0);
   let publishedToday = 0;
   try { publishedToday = Number((await db.execute({sql: "SELECT count(*) n FROM hub_publish_outbox WHERE status='published' AND created_at>=?", args: [dayStart.toISOString()]})).rows[0].n); } catch {}
-  return {ready: true, config, runs, policy: AUTO_EDITOR_POLICY, sources, publishedToday, tierLabels: TIER_LABEL};
+  return {ready: true, config, runs, policy: AUTO_EDITOR_POLICY, sources, publishedToday, tierLabels: TIER_LABEL, selectionRules: SELECTION_RULES};
 }

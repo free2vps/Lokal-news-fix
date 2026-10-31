@@ -49,9 +49,9 @@ async function fixture() {
 test('funnel menunjukkan gerbang mana yang menghabiskan kandidat', async () => {
   const {db, add} = await fixture();
   await add('A', S.ntb, 1, {tier: 'curated'});                       // lolos
-  await add('B', S.jkt, 1, {tier: 'curated'});                       // wilayah
+  await add('B', S.jkt, 1, {tier: 'curated'});                       // nasional (tetap lolos)
   await add('C', S.ntb, 80, {tier: 'curated'});                      // terlalu tua
-  await add('D', S.ntb, 1, {tier: 'radar'});                         // kelas di bawah
+  await add('D', S.ntb, 1, {tier: 'radar'});                         // skor rendah → TETAP lolos (pilihan C)
   await add('E', S.meta, 1, {tier: 'curated'});                      // hak belum terkonfirmasi
   await add('F', S.ntb, 1, {tier: 'curated', title: '', snippet: ''}); // teks kosong
   await add('G', S.ntb, 1, {tier: 'curated', published: null});       // tanggal tak terbaca
@@ -61,16 +61,15 @@ test('funnel menunjukkan gerbang mana yang menghabiskan kandidat', async () => {
 
   const r = await diagnoseSelection(db, {now: NOW});
   assert.equal(r.rowsScanned, 7);
-  assert.equal(r.survivors, 0, 'A sudah di outbox, jadi tidak ada yang lolos');
+  assert.equal(r.survivors, 2, 'D (skor rendah) dan B (nasional) sama-sama lolos');
   const g = Object.fromEntries(r.gates.map(x => [x.key, x.dropped]));
   assert.equal(g.already_in_outbox, 1);
   assert.equal(g.date_outside_window, 1);
   assert.equal(g.rights_not_permission_confirmed, 1);
-  assert.equal(g.value_tier_below_minimum, 1);
-  assert.equal(g.region_not_allowlisted, 1);
+  assert.equal(g.value_tier_below_minimum, undefined, 'gerbang skor sudah tidak ada');
   assert.equal(g.text_missing, 1);
   assert.equal(g.date_unreadable, 1);
-  assert.match(r.verdict, /0 dari 7/);
+  assert.match(r.verdict, /2 dari 7/);
   assert.equal(r.allowedRegions.join(','), 'Bali,NTB,NTT');
   await db.close();
 });
@@ -80,23 +79,24 @@ test('kandidat yang lolos dilaporkan siap terbit + saran yang tepat', async () =
   await add('H', S.ntb, 2, {tier: 'evidence_backed'});
   await add('I', S.ntb, 2, {tier: 'radar'});
   const r = await diagnoseSelection(db, {now: NOW});
-  assert.equal(r.survivors, 1);
-  assert.match(r.verdict, /1 dari 2/);
+  assert.equal(r.survivors, 2, 'skor tinggi maupun rendah sama-sama lolos');
+  assert.match(r.verdict, /2 dari 2/);
   assert.match(r.suggestion, /Jalankan sekarang/);
-  assert.equal(r.byTier.radar, 1);
-  assert.equal(r.byTier.evidence_backed, 1);
-  assert.equal(r.byRegion.NTB, 2);
+  assert.ok(r.rules.length >= 6 && r.rules.some(x => /Hak sumber/.test(x.label)));
   await db.close();
 });
 
-test('semua kelas radar → saran menyebut menurunkan kelas minimum', async () => {
+test('berita nasional dipakai untuk mengisi porsi, bukan dibuang', async () => {
   const {db, add} = await fixture();
-  await add('J', S.ntb, 3, {tier: 'radar'});
-  await add('K', S.ntb, 3, {tier: 'radar'});
+  await add('J', S.jkt, 3, {tier: 'curated'});
+  await add('K', S.jkt, 3, {tier: 'evidence_backed'});
   const r = await diagnoseSelection(db, {now: NOW});
-  assert.equal(r.survivors, 0);
-  assert.match(r.verdict, /kelas kelayakan/);
-  assert.match(r.suggestion, /Kelas minimum/);
+  assert.equal(r.survivors, 2);
+  assert.equal(r.regionalSurvivors, 0);
+  assert.equal(r.nationalSurvivors, 2);
+  assert.equal(r.plan.mixRegionalPct, 60);
+  assert.equal(r.plan.regionalWillTake, 0);
+  assert.ok(r.plan.nationalWillTake >= 1, 'kapasitas diisi berita nasional');
   await db.close();
 });
 

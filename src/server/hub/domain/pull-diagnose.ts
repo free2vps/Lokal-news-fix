@@ -14,13 +14,16 @@ export type DiagnoseItem = {
   dateOk: boolean; published: string | null; dateRaw: string | null;
 };
 export type DiagnoseSource = {
-  id: string; name: string; feedUrl: string | null; ok: boolean; error?: string;
+  id: string; name: string; feedUrl: string | null; ok: boolean; error?: string; rights: string;
   feedItems: number; counts: Record<DiagnoseItem['state'], number>;
   inWindow: number | null; samples: DiagnoseItem[];
+  /** Waktu terbit terbaru DI FEED vs yang TERSIMPAN — pembeda "feed basi" vs "DB sudah punya". */
+  newestFeedAt: string | null; newestStoredAt: string | null; newestStoredTitle: string | null;
 };
 export type DiagnoseResult = {
   at: string; windowHours: number; sources: DiagnoseSource[];
   totals: {feedItems: number; siap: number; duplikat: number; tidak_valid: number};
+  rights: Record<string, number>;
   verdict: string;
 };
 
@@ -42,6 +45,7 @@ export async function diagnosePull(db: Client, opts: {limit?: number; windowHour
     const counts = {siap: 0, duplikat_url: 0, duplikat_identitas: 0, url_invalid: 0, judul_kosong: 0} as Record<DiagnoseItem['state'], number>;
     const samples: DiagnoseItem[] = [];
     let feedItems = 0, inWindow: number | null = null;
+    let newestFeedAt: string | null = null, newestStoredAt: string | null = null, newestStoredTitle: string | null = null;
     try {
       const items = await (opts.peek ?? (peekFeed as unknown as Peek))(feedUrl || '');
       feedItems = items.length;
@@ -59,14 +63,18 @@ export async function diagnosePull(db: Client, opts: {limit?: number; windowHour
         }
         counts[state] += 1;
         if (samples.length < 3) samples.push({title: it.title.slice(0, 120), state, dateOk: !!it.published, published: it.published, dateRaw: it.dateRaw ? String(it.dateRaw).slice(0, 60) : null});
+        if (it.published && (!newestFeedAt || Date.parse(it.published) > Date.parse(newestFeedAt))) newestFeedAt = it.published;
       }
       try {
         inWindow = Number((await db.execute({sql: 'SELECT count(*) n FROM hub_items WHERE source_id=? AND first_seen_at>=?', args: [id, since]})).rows[0]?.n || 0);
+        const last = (await db.execute({sql: 'SELECT source_title,source_published_at FROM hub_items WHERE source_id=? ORDER BY source_published_at DESC LIMIT 1', args: [id]})).rows[0];
+        newestStoredAt = last?.source_published_at ? String(last.source_published_at) : null;
+        newestStoredTitle = last?.source_title ? String(last.source_title).slice(0, 120) : null;
       } catch { inWindow = null; }
-      sources.push({id, name, feedUrl, ok: true, feedItems, counts, inWindow, samples});
+      sources.push({id, name, feedUrl, ok: true, rights: String(r.rights_status || 'unknown'), feedItems, counts, inWindow, samples, newestFeedAt, newestStoredAt, newestStoredTitle});
     } catch (e) {
       const code = (e instanceof Error ? e.message : '').replace(/[^A-Z0-9_]/g, '').slice(0, 40) || 'RSS_ERROR';
-      sources.push({id, name, feedUrl, ok: false, error: code, feedItems: 0, counts, inWindow, samples});
+      sources.push({id, name, feedUrl, ok: false, error: code, rights: String(r.rights_status || 'unknown'), feedItems: 0, counts, inWindow, samples, newestFeedAt, newestStoredAt, newestStoredTitle});
     }
   }
 
@@ -77,6 +85,8 @@ export async function diagnosePull(db: Client, opts: {limit?: number; windowHour
     tidak_valid: a.tidak_valid + s.counts.url_invalid + s.counts.judul_kosong,
   }), {feedItems: 0, siap: 0, duplikat: 0, tidak_valid: 0});
 
+  const rights: Record<string, number> = {};
+  for (const s of sources) rights[s.rights] = (rights[s.rights] || 0) + 1;
   const failed = sources.filter(s => !s.ok).length;
   const verdict = !sources.length
     ? 'Tidak ada sumber RSS aktif dengan hak yang jelas — tidak ada yang bisa diperiksa.'
@@ -87,7 +97,7 @@ export async function diagnosePull(db: Client, opts: {limit?: number; windowHour
         : `Semua ${totals.feedItems} item teratas feed sudah ada di database (duplikat). Ini sebabnya ditarik 0: bukan kerusakan, melainkan tidak ada artikel baru sejak tarikan terakhir.`
       ;
 
-  return {at: new Date(now).toISOString(), windowHours, sources, totals, verdict};
+  return {at: new Date(now).toISOString(), windowHours, sources, totals, rights, verdict};
 }
 
 export {STATE};

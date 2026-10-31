@@ -76,19 +76,31 @@ test('redaktur otomatis: bawaan MATI dan tidak menyentuh apa pun', async () => {
   } finally { await db.close(); }
 });
 
-test('redaktur otomatis: kelas minimum menyaring berita yang belum berbukti', async () => {
+test('redaktur otomatis: skor mutu rendah TIDAK menghalangi terbit (pilihan C)', async () => {
   const {db, add} = await fixture();
   try {
     await add(SRC_NTB, 2);
-    // Kelas "berbukti" butuh ≥2 penerbit sepadan + suntingan manusia/≥2 observasi; satu sumber tidak bisa.
-    await saveAutoConfig(db, {minTier: 'evidence_backed'}, 'owner', NOW);
+    // Skor editorial berita ini hanya "radar" (33 poin), jauh di bawah "kurasi" (45).
+    // Sejak pilihan C, angka itu informasi saja: syarat terbit hanya daftar lulus/gagal.
+    await saveAutoConfig(db, {maxPerRun: 3, maxPerDay: 10}, 'owner', NOW);
     await setAutoEditor(db, true, 'AKTIFKAN REDAKTUR OTOMATIS', 'owner', NOW);
     const out = await runAutoEditor(db, {now: NOW, skipPull: true, deliver: okDeliver()});
-    assert.equal(out.candidates, 0);
+    assert.equal(out.candidates, 1);
+    assert.equal(out.published, 1);
+    assert.equal(out.reasons.value_tier_below_minimum, undefined, 'skor tidak lagi menjadi alasan gugur');
+    assert.ok(Array.isArray(out.selectionRules) && out.selectionRules.length >= 6, 'syarat terbit dilaporkan ke UI');
+  } finally { await db.close(); }
+});
+
+test('redaktur otomatis: syarat hak tetap berlaku walau skor tinggi', async () => {
+  const {db, add} = await fixture();
+  try {
+    await add(SRC_META, 2); // sumber metadata_only
+    await saveAutoConfig(db, {maxPerRun: 3, maxPerDay: 10}, 'owner', NOW);
+    await setAutoEditor(db, true, 'AKTIFKAN REDAKTUR OTOMATIS', 'owner', NOW);
+    const out = await runAutoEditor(db, {now: NOW, skipPull: true, deliver: okDeliver()});
     assert.equal(out.published, 0);
-    assert.equal(out.reasons.value_tier_below_minimum, 1, 'berita sumber tunggal tidak bisa mencapai kelas berbukti');
-    const ed = await db.execute('SELECT count(*) n FROM hub_auto_editorial_v2');
-    assert.equal(Number(ed.rows[0].n), 0);
+    assert.equal(out.reasons.rights_not_permission_confirmed, 1);
   } finally { await db.close(); }
 });
 
@@ -119,23 +131,26 @@ test('redaktur otomatis: menerbitkan otomatis saat kelas diturunkan, dengan bata
   } finally { await db.close(); }
 });
 
-test('redaktur otomatis: hanya wilayah Bali/NT/NTB, umur ≤ 48 jam, dan hak sumber terkonfirmasi', async () => {
+test('redaktur otomatis: umur ≤ 48 jam dan hak sumber tetap menjadi syarat; wilayah hanya porsi', async () => {
   const {db, add} = await fixture();
   try {
     const ntb = await add(SRC_NTB, 2);
     const jkt = await add(SRC_JKT, 2, {title: 'Harga cabai di pasar induk naik', snippet: 'Harga cabai merah di pasar induk naik menjelang akhir bulan. Pedagang menyebut pasokan berkurang dalam sepekan terakhir. Pemerintah kota menyiapkan operasi pasar.'});
     const old = await add(SRC_NTB, 72);
     const meta = await add(SRC_META, 2, {title: 'Beasiswa pemuda NTB dibuka', snippet: SNIPPET});
-    await saveAutoConfig(db, {minTier: 'radar', maxPerRun: 10, maxPerDay: 10}, 'owner', NOW);
+    await saveAutoConfig(db, {mixRegionalPct: 60, maxPerRun: 10, maxPerDay: 10}, 'owner', NOW);
     await setAutoEditor(db, true, 'AKTIFKAN REDAKTUR OTOMATIS', 'owner', NOW);
     const counter = {calls: 0, items: [] as string[]};
     const out = await runAutoEditor(db, {now: NOW, skipPull: true, deliver: okDeliver(counter)});
-    assert.equal(out.published, 1);
-    assert.equal(counter.items[0], ntb);
-    assert.ok(!counter.items.includes(jkt), 'luar wilayah tidak terbit');
+    // Berita nasional (Jakarta, tanpa kata wilayah prioritas) kini ikut terbit — sesuai keputusan pemilik.
+    assert.equal(out.published, 2);
+    assert.ok(counter.items.includes(ntb), 'berita daerah terbit');
+    assert.ok(counter.items.includes(jkt), 'berita nasional terbit mengisi porsi');
     assert.ok(!counter.items.includes(old), 'lebih tua dari 48 jam tidak terbit');
     assert.ok(!counter.items.includes(meta), 'sumber metadata_only tidak terbit pada mode bawaan');
-    assert.equal(out.reasons.region_not_allowlisted, 1);
+    assert.equal(out.composition!.regional, 1);
+    assert.equal(out.composition!.national, 1);
+    assert.equal(out.reasons.region_not_allowlisted, undefined, 'wilayah tidak lagi menjadi gerbang');
     assert.equal(out.reasons.date_outside_window, 1);
     assert.equal(out.reasons.rights_not_permission_confirmed, 1);
   } finally { await db.close(); }
@@ -328,4 +343,48 @@ test('redaktur otomatis API: owner+CSRF, bearer untuk pemicu, Preview saja', asy
     keys.forEach((k, i) => { if (old[i] === undefined) delete process.env[k]; else process.env[k] = old[i]; });
     await rm(dir, {recursive: true, force: true});
   }
+});
+
+test('komposisi 60:40 — berita daerah diutamakan, sisanya nasional', async () => {
+  const {db, add} = await fixture();
+  try {
+    for (let i = 0; i < 6; i++) await add(SRC_NTB, 1 + i); // daerah (judul memuat NTB)
+    for (let i = 0; i < 6; i++) await add(SRC_JKT, 1 + i, {title: 'Berita ibu kota edisi ' + i, snippet: 'Pemerintah pusat mengumumkan kebijakan baru untuk seluruh wilayah Indonesia pekan ini. Rincian kebijakan disampaikan melalui konferensi pers di Jakarta.'});
+    await saveAutoConfig(db, {mixRegionalPct: 60, maxPerRun: 10, maxPerDay: 20}, 'owner', NOW);
+    await setAutoEditor(db, true, 'AKTIFKAN REDAKTUR OTOMATIS', 'owner', NOW);
+    const out = await runAutoEditor(db, {now: NOW, skipPull: true, deliver: okDeliver()});
+    assert.equal(out.published, 10);
+    assert.equal(out.composition!.regional, 6, 'target 60% dari 10 = 6 daerah');
+    assert.equal(out.composition!.national, 4);
+    assert.equal(out.available!.regional, 6);
+    assert.equal(out.available!.national, 6);
+  } finally { await db.close(); }
+});
+
+test('komposisi: bila berita daerah kurang, sisa kapasitas diisi nasional', async () => {
+  const {db, add} = await fixture();
+  try {
+    for (let i = 0; i < 2; i++) await add(SRC_NTB, 1 + i);
+    for (let i = 0; i < 6; i++) await add(SRC_JKT, 1 + i, {title: 'Berita ibu kota edisi ' + i, snippet: 'Pemerintah pusat mengumumkan kebijakan baru untuk seluruh wilayah Indonesia pekan ini. Rincian kebijakan disampaikan melalui konferensi pers di Jakarta.'});
+    await saveAutoConfig(db, {mixRegionalPct: 60, maxPerRun: 6, maxPerDay: 20}, 'owner', NOW);
+    await setAutoEditor(db, true, 'AKTIFKAN REDAKTUR OTOMATIS', 'owner', NOW);
+    const out = await runAutoEditor(db, {now: NOW, skipPull: true, deliver: okDeliver()});
+    assert.equal(out.published, 6);
+    assert.equal(out.composition!.regional, 2, 'semua daerah terpakai');
+    assert.equal(out.composition!.national, 4, 'kapasitas tidak terbuang');
+  } finally { await db.close(); }
+});
+
+test('komposisi 100% daerah — berita nasional tidak diterbitkan', async () => {
+  const {db, add} = await fixture();
+  try {
+    await add(SRC_NTB, 1);
+    for (let i = 0; i < 3; i++) await add(SRC_JKT, 1 + i, {title: 'Berita ibu kota edisi ' + i, snippet: 'Pemerintah pusat mengumumkan kebijakan baru untuk seluruh wilayah Indonesia pekan ini. Rincian kebijakan disampaikan melalui konferensi pers di Jakarta.'});
+    await saveAutoConfig(db, {mixRegionalPct: 100, maxPerRun: 5, maxPerDay: 20}, 'owner', NOW);
+    await setAutoEditor(db, true, 'AKTIFKAN REDAKTUR OTOMATIS', 'owner', NOW);
+    const out = await runAutoEditor(db, {now: NOW, skipPull: true, deliver: okDeliver()});
+    assert.equal(out.published, 1);
+    assert.equal(out.composition!.regional, 1);
+    assert.equal(out.composition!.national, 0);
+  } finally { await db.close(); }
 });

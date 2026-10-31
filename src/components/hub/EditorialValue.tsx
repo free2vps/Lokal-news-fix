@@ -21,7 +21,7 @@ export function ValueManager({onCompleted}:{onCompleted?:()=>void}){
  return <section className="panel"><h2>Tahap 5 · Nilai tambah editorial</h2>
   <p>Kelas nilai: <b>Radar</b> (sinyal mentah) → <b>Kurasi</b> (ada olah editorial) → <b>Berbukti</b> (observasi/olahan manusia + kesepakatan antar sumber). Dinilai: {status?status.stored:'—'} / {status?status.total:'—'}.</p>
   <div className="form-actions"><button className="button" disabled={busy} onClick={()=>void run()}>{busy?'Menilai…':cursor?'Lanjutkan penilaian':'Hitung nilai seluruh berita'}</button>{busy&&<button className="button secondary" onClick={()=>{stop.current=true;}}>Berhenti setelah batch</button>}<button className="button secondary" disabled={busy} onClick={()=>void load()}>Perbarui</button></div>
-  <p className="tiny">25 berita/batch, aman diulang, tanpa AI. Parafrase AI tidak pernah menaikkan kelas menjadi “Berbukti”. Radar bukan bukti kebenaran; kelas ini bukan verifikasi fakta, bukan penilaian originalitas, dan bukan jaminan AdSense. Tidak ada publikasi.</p>
+  <p className="tiny"><b>Hanya informasi.</b> Skor di halaman ini tidak lagi menentukan apakah berita terbit; penerbitan diatur daftar syarat di menu API Integration. 25 berita/batch, aman diulang, tanpa AI. Parafrase AI tidak pernah menaikkan kelas menjadi “Berbukti”. Radar bukan bukti kebenaran; kelas ini bukan verifikasi fakta, bukan penilaian originalitas, dan bukan jaminan AdSense. Tidak ada publikasi.</p>
   {status?.ready&&<p className="tiny">Saat ini: {Object.entries(status.tiers||{}).map(([k,v])=>`${TIER[k]?.label||k} ${v}`).join(' · ')||'belum ada hasil'}.</p>}
   {message&&<p role="status">{message}</p>}</section>;
 }
