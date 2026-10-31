@@ -74,12 +74,15 @@ test('kredensial situs tersedia: redaktur otomatis BENAR-BENAR mengirim ke Supab
   try {
     const out = await runAutoEditor(db, {now: NOW, skipPull: true});
     assert.equal(out.published, 1, 'satu artikel harus benar-benar terbit');
-    assert.equal(seen.length, 1);
-    assert.ok(seen[0].url.startsWith('https://site.supabase.co/rest/v1/articles'));
-    assert.equal(seen[0].key, 'site-key');
+    // Hanya panggilan PENERBITAN yang dihitung; langkah perapian gambar memakai endpoint sama
+    // dengan awalan kueri berbeda (tanpa on_conflict).
+    const publishedCalls = seen.filter(s => s.url.includes('on_conflict'));
+    assert.equal(publishedCalls.length, 1);
+    assert.ok(publishedCalls[0].url.startsWith('https://site.supabase.co/rest/v1/articles'));
+    assert.equal(publishedCalls[0].key, 'site-key');
     const publish = out.steps.find(s => s.step === 'publish')!;
     assert.equal(publish.ok, true);
-    const sent = JSON.parse(seen[0].body) as {title: string; source_url: string; section: string}[];
+    const sent = JSON.parse(publishedCalls[0].body) as {title: string; source_url: string; section: string}[];
     assert.equal(sent.length, 1);
     assert.match(sent[0].source_url, /https:\/\/a\.test\/1/);
     assert.ok(sent[0].title.length > 0);
@@ -144,4 +147,63 @@ test('status melaporkan putaran terjadwal terakhir sebagai bukti penjadwal', asy
     assert.equal(after.lastScheduled?.status, 'ok');
     assert.equal(after.lastScheduled?.published, 5);
   } finally { await db.close(); }
+});
+
+test('REGRESI: gambar + nama penerbit + hak sumber BENAR-BENAR sampai ke portal', async () => {
+  // Bug r13–r15: snapshot yang disimpan memuat data sumber, tetapi objek yang DIKIRIM ditulis
+  // ulang tanpa sourceName/sourceImageUrl/sourceRights → portal menerima image_url null dan
+  // kredit "Penerbit sumber". Tes ini mengunci jalur kirim, bukan hanya jalur simpan.
+  const restore = withEnv({NEXT_PUBLIC_SUPABASE_URL: 'https://site.supabase.co', SUPABASE_SERVICE_ROLE_KEY: 'site-key'});
+  const originalFetch = globalThis.fetch;
+  const bodies: string[] = [];
+  globalThis.fetch = (async (input: any, init?: any) => {
+    if (!String(input).includes('on_conflict')) return new Response('[]', {status: 200});
+    bodies.push(String(init?.body || ''));
+    const rows = JSON.parse(String(init?.body || '[]')) as {source_url: string}[];
+    return new Response(JSON.stringify(rows.map((r, i) => ({id: 'n' + i, source_url: r.source_url}))), {status: 201});
+  }) as typeof fetch;
+  const {db} = await fixture();
+  try {
+    await db.execute({sql: "UPDATE hub_items SET source_image_url='https://cdn.a.test/foto.jpg' WHERE id='i1'", args: []});
+    const out = await runAutoEditor(db, {now: NOW, skipPull: true});
+    assert.equal(out.published, 1);
+    const sent = JSON.parse(bodies[0]) as {image_url: string | null; image_credit: string | null; source_name: string}[];
+    assert.equal(sent[0].image_url, 'https://cdn.a.test/foto.jpg', 'gambar sumber harus ikut terkirim');
+    assert.equal(sent[0].image_credit, 'media-ntb', 'kredit memakai nama penerbit, bukan teks cadangan');
+    assert.equal(sent[0].source_name, 'media-ntb', 'nama penerbit tidak boleh kosong');
+    const publish = out.steps.find(s => s.step === 'publish')!;
+    assert.match(String(publish.detail), /1 membawa gambar/);
+  } finally { globalThis.fetch = originalFetch; await db.close(); restore(); }
+});
+
+test('REGRESI: artikel lama tanpa gambar dilengkapi tanpa tombol baru', async () => {
+  const restore = withEnv({NEXT_PUBLIC_SUPABASE_URL: 'https://site.supabase.co', SUPABASE_SERVICE_ROLE_KEY: 'site-key'});
+  const originalFetch = globalThis.fetch;
+  const patched: string[] = [];
+  globalThis.fetch = (async (input: any, init?: any) => {
+    const url = String(input);
+    const method = String(init?.method || 'GET');
+    if (method === 'GET' && url.includes('image_url=is.null')) {
+      return new Response(JSON.stringify([{id: '42', source_url: 'https://a.test/1'}]), {status: 200});
+    }
+    if (method === 'PATCH') { patched.push(String(init?.body || '')); return new Response(null, {status: 204}); }
+    if (url.includes('on_conflict')) {
+      const rows = JSON.parse(String(init?.body || '[]')) as {source_url: string}[];
+      return new Response(JSON.stringify(rows.map((r, i) => ({id: 'n' + i, source_url: r.source_url}))), {status: 201});
+    }
+    return new Response('[]', {status: 200});
+  }) as typeof fetch;
+  const {db} = await fixture();
+  try {
+    await db.execute({sql: "UPDATE hub_items SET source_image_url='https://cdn.a.test/foto.jpg' WHERE id='i1'", args: []});
+    const first = await runAutoEditor(db, {now: NOW, skipPull: true});
+    assert.equal(first.published, 1);
+    patched.length = 0; // hitung hanya perapian pada putaran kedua
+    const second = await runAutoEditor(db, {now: NOW + 6000, skipPull: true});
+    const repair = second.steps.find(s => s.step === 'image_repair');
+    assert.ok(repair, 'langkah perapian gambar harus muncul');
+    assert.match(String(repair!.detail), /1 dari 1 dilengkapi/);
+    assert.equal(patched.length, 1);
+    assert.equal((JSON.parse(patched[0]) as {image_url: string}).image_url, 'https://cdn.a.test/foto.jpg');
+  } finally { globalThis.fetch = originalFetch; await db.close(); restore(); }
 });

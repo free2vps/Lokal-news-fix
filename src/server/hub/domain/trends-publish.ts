@@ -7,20 +7,32 @@ import {resolveDeliveryTarget} from './delivery-target';
  *
  * Kenapa perlu: beranda portal membaca `content_hub_cache` atau tabel `trending` di Supabase.
  * Endpoint impor lama (/api/portal-feed, /api/content-hub/push) sudah DINONAKTIFKAN, sehingga
- * tren yang berubah di Hub tidak pernah sampai ke portal. Jalur ini menulis langsung ke
- * `trending` memakai kredensial tujuan terbit yang sama seperti artikel.
+ * tren yang berubah di Hub tidak pernah sampai ke portal.
  *
- * Tidak mengarang data: hanya snapshot sah yang ada di Hub. Baris diberi `expires_at` supaya
- * tren lama hilang sendiri dari beranda, dan id tetap supaya penulisan ulang menimpa baris yang sama.
+ * PENTING (perbaikan r16) — sebab `TRENDS_HTTP_400`:
+ * kolom `trending.id` di portal adalah `GENERATED ALWAYS AS IDENTITY` (tanpa nilai bawaan).
+ * Versi lama ikut mengirim `id: 'hub-x_t24-1'`, dan PostgreSQL menolak nilai eksplisit untuk
+ * kolom identitas (galat 428C9) → PostgREST membalas 400. Sekarang `id` TIDAK dikirim sama
+ * sekali; baris lama dibersihkan setelah baris baru masuk, memakai id yang dikembalikan server.
+ *
+ * Tidak mengarang data: hanya snapshot sah yang ada di Hub. `expires_at` membuat tren basi
+ * hilang sendiri dari beranda.
  */
 export type TrendRow = {
-  id: string; platform: string; kind: string; rank: number;
+  platform: string; kind: string; rank: number; source: string;
   title: string; url: string | null; metric: string; image_url: string | null; expires_at: string;
 };
-export type TrendsPublishResult = {x: number; youtube: number; total: number; target: string};
+export type TrendsPublishResult = {x: number; youtube: number; total: number; target: string; removed: number};
 
 const X_PLATFORM = 'x_t24';
 const YT_PLATFORM = 'yt_feed';
+const TREND_SOURCE = 'hub';
+
+/** Pesan galat pendek yang bisa dibaca pengguna; isi badan respons ikut dibawa agar sebabnya jelas. */
+function httpCode(status: number, body: string) {
+  const clean = body.replace(/\s+/g, ' ').trim().slice(0, 160);
+  return `TRENDS_HTTP_${status}${clean ? ' — ' + clean : ''}`;
+}
 
 export async function collectTrendRows(db: Client, master: string | undefined, now = Date.now()): Promise<TrendRow[]> {
   const [x, yt] = await Promise.all([
@@ -37,7 +49,7 @@ export async function collectTrendRows(db: Client, master: string | undefined, n
     const rank = Number(item?.rank) > 0 ? Number(item.rank) : index + 1;
     const stamp = (x as {sourceSnapshotAt?: string | null})?.sourceSnapshotAt;
     rows.push({
-      id: `hub-${X_PLATFORM}-${rank}`, platform: X_PLATFORM, kind: 'topic', rank,
+      platform: X_PLATFORM, kind: 'topic', rank, source: TREND_SOURCE,
       title: title.slice(0, 300),
       url: `https://x.com/search?q=${encodeURIComponent(title.slice(0, 120))}`,
       metric: `Trends24 · 1 hour ago${stamp ? ' · ' + new Date(stamp).toLocaleString('id-ID', {timeZone: 'Asia/Makassar'}) + ' WITA' : ''}`,
@@ -50,7 +62,7 @@ export async function collectTrendRows(db: Client, master: string | undefined, n
     const title = String(video?.title || '').trim();
     if (!/^[\w-]{11}$/.test(id) || !title) return;
     rows.push({
-      id: `hub-${YT_PLATFORM}-${id}`, platform: YT_PLATFORM, kind: 'video', rank: index + 1,
+      platform: YT_PLATFORM, kind: 'video', rank: index + 1, source: TREND_SOURCE,
       title: title.slice(0, 300), url: `https://www.youtube.com/watch?v=${id}`,
       metric: String(video?.channel || 'Playlist YouTube'),
       image_url: `https://i.ytimg.com/vi/${id}/hqdefault.jpg`, expires_at: ytExpiry,
@@ -68,23 +80,49 @@ export async function publishTrends(
   const target = resolveDeliveryTarget(env);
   if (target.source === 'none') throw Error('PUBLISH_TARGET_NOT_CONFIGURED');
   const rows = await collectTrendRows(db, opts.master, now);
-  if (!rows.length) return {x: 0, youtube: 0, total: 0, target: 'supabase_trending'};
+  if (!rows.length) return {x: 0, youtube: 0, total: 0, target: 'supabase_trending', removed: 0};
   const fetcher = opts.fetcher ?? fetch;
   const origin = new URL(target.url);
   if (origin.protocol !== 'https:') throw Error('PUBLISH_TARGET_INVALID');
-  const r = await fetcher(new URL('/rest/v1/trending?on_conflict=id', origin).href, {
+  const base = {apikey: target.key, Authorization: `Bearer ${target.key}`};
+
+  // 1. Masukkan baris baru. `return=representation` memberi tahu id yang dipakai server.
+  const r = await fetcher(new URL('/rest/v1/trending', origin).href, {
     method: 'POST', redirect: 'error', signal: AbortSignal.timeout(15000),
-    headers: {
-      apikey: target.key, Authorization: `Bearer ${target.key}`,
-      'Content-Type': 'application/json',
-      Prefer: 'resolution=merge-duplicates,return=minimal',
-    },
+    headers: {...base, 'Content-Type': 'application/json', Prefer: 'return=representation'},
     body: JSON.stringify(rows),
   });
-  if (!r.ok) { await r.body?.cancel().catch(() => {}); throw Error('TRENDS_HTTP_' + r.status); }
+  if (!r.ok) {
+    const body = await r.text().catch(() => '');
+    throw Error(httpCode(r.status, body));
+  }
+  let inserted: {id: number | string}[] = [];
+  try {
+    const parsed = JSON.parse(await r.text()) as {id: number | string}[] | null;
+    if (Array.isArray(parsed)) inserted = parsed;
+  } catch { inserted = []; }
+
+  // 2. Buang baris Hub yang lama (id tidak termasuk yang baru masuk). Bila server tidak
+  //    mengembalikan id, baris lama dibiarkan: duplikat lebih ringan daripada data hilang,
+  //    dan `expires_at` tetap menghapusnya dari beranda.
+  let removed = 0;
+  const ids = inserted.map(i => String(i.id)).filter(id => /^\d+$/.test(id));
+  if (ids.length) {
+    const q = `/rest/v1/trending?source=eq.${TREND_SOURCE}&id=not.in.(${ids.join(',')})`;
+    try {
+      const d = await fetcher(new URL(q, origin).href, {
+        method: 'DELETE', redirect: 'error', signal: AbortSignal.timeout(15000),
+        headers: {...base, Prefer: 'return=representation'},
+      });
+      if (d.ok) {
+        try { const gone = JSON.parse(await d.text()) as unknown[]; removed = Array.isArray(gone) ? gone.length : 0; } catch { removed = 0; }
+      } else await d.body?.cancel().catch(() => {});
+    } catch { /* pembersihan opsional; tren baru sudah masuk */ }
+  }
+
   return {
     x: rows.filter(row => row.platform === X_PLATFORM).length,
     youtube: rows.filter(row => row.platform === YT_PLATFORM).length,
-    total: rows.length, target: 'supabase_trending',
+    total: rows.length, target: 'supabase_trending', removed,
   };
 }

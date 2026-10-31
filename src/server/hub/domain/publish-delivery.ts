@@ -70,3 +70,66 @@ export function supabaseDeliver(fetcher: typeof fetch = fetch, env: NodeJS.Proce
     return result;
   };
 }
+
+/**
+ * Lengkapi gambar pada artikel yang SUDAH terbit sebelum perbaikan r16.
+ *
+ * Kenapa perlu: penerbitan memakai `resolution=ignore-duplicates` pada `source_url`, jadi artikel
+ * yang telanjur masuk tanpa gambar tidak akan pernah berubah hanya dengan menerbitkan ulang.
+ * Snapshot di outbox sudah menyimpan `sourceImageUrl`/`sourceRights` yang benar, jadi gambar bisa
+ * dipasang tanpa mengambil apa pun dari internet dan tanpa menyimpan ulang berkas gambar.
+ *
+ * Aman diulang: hanya menyentuh baris yang `image_url` masih kosong, dan hanya memakai hak yang
+ * sudah dinyatakan (permission_confirmed). Tidak ada tombol baru — ini bagian dari putaran biasa.
+ */
+export async function repairArticleImages(db: import('@libsql/client').Client, opts: {
+  fetcher?: typeof fetch; env?: NodeJS.ProcessEnv; max?: number;
+} = {}) {
+  const env = opts.env ?? process.env;
+  const target = resolveDeliveryTarget(env);
+  const out = {checked: 0, missing: 0, repaired: 0};
+  if (!target.url || !target.key) return out;
+  const max = opts.max ?? 15;
+  const rows = (await db.execute({sql: "SELECT snapshot_json FROM hub_publish_outbox WHERE status='published' ORDER BY created_at DESC LIMIT 200", args: []})).rows;
+  const wants = new Map<string, {image: string; credit: string}>();
+  for (const row of rows) {
+    let snap: Record<string, unknown>;
+    try { snap = JSON.parse(String(row.snapshot_json)) as Record<string, unknown>; } catch { continue; }
+    if (String(snap.sourceRights || '') !== 'permission_confirmed') continue;
+    const image = typeof snap.sourceImageUrl === 'string' ? snap.sourceImageUrl : '';
+    const url = typeof snap.originalUrl === 'string' ? snap.originalUrl : '';
+    if (!/^https:\/\//i.test(image) || !/^https:\/\//i.test(url)) continue;
+    if (!wants.has(url)) wants.set(url, {image, credit: String(snap.sourceName || 'Penerbit sumber')});
+  }
+  out.checked = wants.size;
+  if (!wants.size) return out;
+  const urls = [...wants.keys()].slice(0, 40);
+  const fetcher = opts.fetcher ?? fetch;
+  let origin: URL;
+  try { origin = new URL(target.url); } catch { return out; }
+  if (origin.protocol !== 'https:') return out;
+  const headers = {apikey: target.key, Authorization: `Bearer ${target.key}`};
+  const filter = urls.map(u => `"${u.replace(/"/g, '%22')}"`).join(',');
+  let ids: {id: string; source_url: string}[] = [];
+  try {
+    const r = await fetcher(new URL(`/rest/v1/articles?select=id,source_url&image_url=is.null&source_url=in.(${filter})`, origin).href,
+      {method: 'GET', redirect: 'error', signal: AbortSignal.timeout(15000), headers});
+    if (!r.ok) { await r.body?.cancel().catch(() => {}); return out; }
+    ids = JSON.parse(await r.text()) as {id: string; source_url: string}[] | [];
+    if (!Array.isArray(ids)) ids = [];
+  } catch { return out; }
+  out.missing = ids.length;
+  for (const row of ids.slice(0, max)) {
+    const want = wants.get(String(row.source_url));
+    if (!want) continue;
+    try {
+      const r = await fetcher(new URL(`/rest/v1/articles?id=eq.${encodeURIComponent(String(row.id))}`, origin).href,
+        {method: 'PATCH', redirect: 'error', signal: AbortSignal.timeout(15000),
+          headers: {...headers, 'Content-Type': 'application/json', Prefer: 'return=minimal'},
+          body: JSON.stringify({image_url: want.image, image_credit: want.credit})});
+      if (r.ok) out.repaired += 1;
+      else await r.body?.cancel().catch(() => {});
+    } catch { /* satu baris gagal tidak menghentikan sisanya */ }
+  }
+  return out;
+}

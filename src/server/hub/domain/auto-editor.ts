@@ -526,6 +526,11 @@ export async function runAutoEditor(db: Client, opts: RunOptions = {}) {
     // situs tersedia. Sekarang adapter sungguhan dipakai bila tujuannya terkonfigurasi.
     const deliver = opts.deliver ?? (targetConfigured() ? supabaseDeliver() : defaultDeliver());
     const claimed: Candidate[] = [];
+    // Snapshot dibentuk SATU KALI lalu dipakai untuk arsip persetujuan, outbox, DAN pengiriman.
+    // Sebelumnya objek yang dikirim ke portal ditulis ulang sebagai literal kedua yang lupa
+    // membawa sourceName/sourceImageUrl/sourceRights; akibatnya SEMUA artikel terbit tanpa
+    // gambar dan kreditnya jatuh ke teks cadangan "Penerbit sumber".
+    const snapshots = new Map<string, string>();
     for (const c of picked) {
       const key = createHash('sha256').update(`auto:${c.id}:${c.version}`).digest('hex');
       const snapshot = JSON.stringify({
@@ -534,6 +539,7 @@ export async function runAutoEditor(db: Client, opts: RunOptions = {}) {
         editorialCategory: c.category, version: c.version, autoEditorial: true, autoMethod: c.method,
         sourceName: c.sourceName, sourceImageUrl: c.imageUrl, sourceRights: c.rights,
       });
+      snapshots.set(c.id, snapshot);
       // Outbox mensyaratkan baris persetujuan (item_id,version). Redaktur otomatis mencatat
       // persetujuannya sendiri dengan penanda jelas 'auto-editor' agar tetap dapat diaudit;
       // status tinjauan berita TIDAK diubah dan edit manual tidak ditimpa.
@@ -549,18 +555,17 @@ export async function runAutoEditor(db: Client, opts: RunOptions = {}) {
       if (retry.rowsAffected) { claimed.push(c); retried += 1; }
     }
     try {
-      const result = await deliver(claimed.map(c => ({id: c.id, version: c.version, snapshot: JSON.parse(JSON.stringify({
-        id: c.id, sourceId: c.sourceId, originalUrl: c.url, sourceTitle: c.title, sourceSnippet: c.snippet,
-        sourcePublishedAt: c.publishedAt, sourceDateRaw: c.dateRaw, editorialTitle: c.title, editorialSummary: c.summary,
-        editorialCategory: c.category, version: c.version, autoEditorial: true, autoMethod: c.method,
-      }))})));
+      const result = await deliver(claimed.map(c => ({id: c.id, version: c.version,
+        snapshot: JSON.parse(snapshots.get(c.id) as string)})));
       published = result.published.length;
       duplicates = result.duplicates.length;
       failed.push(...result.failed);
       for (const id of result.published) await db.execute({sql: "UPDATE hub_publish_outbox SET status='published' WHERE item_id=? AND status='sending'", args: [id]});
       for (const id of result.duplicates) await db.execute({sql: "UPDATE hub_publish_outbox SET status='duplicate' WHERE item_id=? AND status='sending'", args: [id]});
       for (const f of result.failed) await db.execute({sql: "UPDATE hub_publish_outbox SET status='failed' WHERE item_id=? AND status='sending'", args: [f.id]});
-      push('publish', failed.length === 0, `${published} terbit, ${duplicates} sudah ada, ${failed.length} gagal${retried ? ` (${retried} percobaan ulang dari putaran sebelumnya)` : ''}`, published);
+      const sent = new Set(result.published);
+      const withImage = claimed.filter(c => sent.has(c.id) && c.imageUrl && c.rights === 'permission_confirmed').length;
+      push('publish', failed.length === 0, `${published} terbit, ${duplicates} sudah ada, ${failed.length} gagal${published ? ` · ${withImage} membawa gambar` : ''}${retried ? ` (${retried} percobaan ulang dari putaran sebelumnya)` : ''}`, published);
     } catch (e) {
       const code = (e instanceof Error ? e.message : '').replace(/[^A-Z0-9_]/g, '').slice(0, 50) || 'PUBLISH_FAILED';
       for (const c of claimed) await db.execute({sql: "UPDATE hub_publish_outbox SET status='failed' WHERE item_id=? AND status='sending'", args: [c.id]});
@@ -576,6 +581,18 @@ export async function runAutoEditor(db: Client, opts: RunOptions = {}) {
       } catch { /* outbox belum ada */ }
     }
     push('publish', true, `Tidak ada yang perlu diterbitkan${pendingNote}`, 0);
+  }
+
+  // 7b. Rapikan artikel lama yang telanjur terbit tanpa gambar (akibat bug r13–r15).
+  // Tidak meminta tindakan pengguna: gambar diambil dari catatan pengiriman yang sudah tersimpan.
+  try {
+    if (targetConfigured()) {
+      const {repairArticleImages} = await import('./publish-delivery');
+      const rep = await repairArticleImages(db, {max: 15});
+      if (rep.missing > 0) push('image_repair', true, `Gambar artikel lama: ${rep.repaired} dari ${rep.missing} dilengkapi`, rep.repaired);
+    }
+  } catch (e) {
+    push('image_repair', false, `Pemeriksaan gambar artikel lama dilewati (${(e as Error).message.replace(/[^A-Z0-9_]/g, '').slice(0, 40) || 'belum siap'})`, 0);
   }
 
   // 8. Antrean media sosial: artikel yang baru terbit langsung bisa ditarik Make

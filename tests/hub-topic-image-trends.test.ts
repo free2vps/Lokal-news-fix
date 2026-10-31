@@ -68,7 +68,10 @@ test('tren Hub diubah menjadi baris tabel trending portal', async () => {
   assert.equal(rows.length, 3);
   const x = rows.filter(r => r.platform === 'x_t24');
   assert.equal(x.length, 2);
-  assert.equal(x[0].id, 'hub-x_t24-1');
+  // Portal memberi `trending.id` nilai sendiri (GENERATED ALWAYS AS IDENTITY), jadi kitа TIDAK
+  // boleh mengirim id: itulah penyebab TRENDS_HTTP_400 sebelumnya.
+  assert.equal('id' in x[0], false, 'id tidak boleh dikirim ke portal');
+  assert.equal(x[0].source, 'hub');
   assert.ok(x[0].expires_at > new Date(Date.parse(now)).toISOString());
   const yt = rows.filter(r => r.platform === 'yt_feed');
   assert.equal(yt.length, 1);
@@ -76,22 +79,43 @@ test('tren Hub diubah menjadi baris tabel trending portal', async () => {
   await db.close();
 });
 
-test('tren dikirim ke Supabase dengan kredensial situs dan menimpa baris yang sama', async () => {
+test('tren dikirim tanpa id, lalu baris lama dibersihkan memakai id dari server', async () => {
   const {db, now} = await trendsFixture();
-  const seen: {url: string; key: string | null; body: any[]}[] = [];
+  const seen: {url: string; key: string | null; method: string; body: any[]}[] = [];
   const fetcher = (async (input: any, init?: any) => {
     const h = new Headers(init?.headers);
-    seen.push({url: String(input), key: h.get('apikey'), body: JSON.parse(String(init?.body || '[]'))});
-    return new Response(null, {status: 201});
+    const method = String(init?.method || 'GET');
+    const body = method === 'POST' ? JSON.parse(String(init?.body || '[]')) : [];
+    seen.push({url: String(input), key: h.get('apikey'), method, body});
+    if (method === 'POST') return new Response(JSON.stringify(body.map((_: unknown, i: number) => ({id: 900 + i}))), {status: 201});
+    return new Response(JSON.stringify([{id: 1}, {id: 2}]), {status: 200});
   }) as unknown as typeof fetch;
   const env = {NEXT_PUBLIC_SUPABASE_URL: 'https://site.supabase.co', SUPABASE_SERVICE_ROLE_KEY: 'site-key'} as unknown as NodeJS.ProcessEnv;
   const out = await publishTrends(db, {now: Date.parse(now), fetcher, env});
   assert.equal(out.total, 3);
   assert.equal(out.x, 2);
   assert.equal(out.youtube, 1);
-  assert.ok(seen[0].url.startsWith('https://site.supabase.co/rest/v1/trending'));
-  assert.equal(seen[0].key, 'site-key');
-  assert.equal(seen[0].body.length, 3);
+  const post = seen.find(s => s.method === 'POST')!;
+  assert.ok(post.url.startsWith('https://site.supabase.co/rest/v1/trending'));
+  assert.equal(post.key, 'site-key');
+  assert.equal(post.body.length, 3);
+  assert.ok(post.body.every(r => !('id' in r)), 'tidak ada id dalam payload');
+  const del = seen.find(s => s.method === 'DELETE')!;
+  assert.match(del.url, /source=eq\.hub/);
+  assert.match(del.url, /id=not\.in\.\(900,901,902\)/);
+  assert.equal(out.removed, 2);
+  await db.close();
+});
+
+test('bila portal menolak, sebabnya ikut dilaporkan (bukan hanya kode kosong)', async () => {
+  const {db, now} = await trendsFixture();
+  const fetcher = (async () => new Response('{"code":"428C9","message":"cannot insert a non-DEFAULT value into column \"id\""}', {status: 400})) as unknown as typeof fetch;
+  const env = {NEXT_PUBLIC_SUPABASE_URL: 'https://site.supabase.co', SUPABASE_SERVICE_ROLE_KEY: 'site-key'} as unknown as NodeJS.ProcessEnv;
+  await assert.rejects(() => publishTrends(db, {now: Date.parse(now), fetcher, env}), (e: Error) => {
+    assert.match(e.message, /TRENDS_HTTP_400/);
+    assert.match(e.message, /cannot insert a non-DEFAULT value/);
+    return true;
+  });
   await db.close();
 });
 
