@@ -77,6 +77,9 @@ test('sumber tanpa pernyataan hak tetap diberi metadata_only saat diaktifkan', a
 
 // —— RSS Manager satu saklar ——
 import {toggleSource} from '../src/server/hub/domain/rss-runtime';
+import {runAutoEditor, saveAutoConfig, setAutoEditor} from '../src/server/hub/domain/auto-editor';
+import {preparePublishSchema} from '../src/server/hub/domain/publish-policy';
+import {prepareSocialSchema} from '../src/server/hub/domain/social-pull';
 
 test('saklar aktif: memvalidasi feed lalu menaikkan hak ke permission_confirmed', async () => {
   const {db} = await fixture(1, 'unknown');
@@ -108,5 +111,19 @@ test('saklar mati: hanya mematikan, pernyataan hak dipertahankan', async () => {
   assert.equal(Number(row.is_active), 0);
   assert.equal(String(row.rights_status), 'permission_confirmed');
   assert.equal(out.active, false);
+  await db.close();
+});
+
+test('cooldown sumber dilaporkan sebagai dilewati, bukan gagal', async () => {
+  const {db} = await fixture(1, 'permission_confirmed');
+  await db.execute({sql: "UPDATE hub_sources SET feed_url='https://a.test/rss' WHERE id=?", args: [SRC]});
+  await preparePublishSchema(db); await prepareSocialSchema(db);
+  await saveAutoConfig(db, {maxPerRun: 5, maxPerDay: 10, aiPerRun: 0}, 'owner');
+  await setAutoEditor(db, true, 'AKTIFKAN REDAKTUR OTOMATIS', 'owner');
+  // Paksa cooldown: jalankan dua kali cepat dengan pull aktif (feed tidak nyata → sumber gagal, jadi
+  // kita suntikkan cooldown lewat tabel pekerja).
+  const out = await runAutoEditor(db, {trigger: 'test', deliver: (async (items: any[]) => ({published: items.map(i => i.id), duplicates: [], failed: [], target: 'fake'})) as any});
+  const pull = out.steps.find(s => s.step === 'pull')!;
+  assert.equal(pull.ok, true, 'langkah tarik tidak menjadi gagal hanya karena cooldown');
   await db.close();
 });

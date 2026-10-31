@@ -6,6 +6,7 @@ import {recommendations} from '@/server/hub/domain/recommendations';
 import {verifyRss,setRssActive,syncRss,toggleSource} from '@/server/hub/domain/rss-runtime';
 import {changeOwnerPassword} from '@/server/hub/security/auth';
 import {accessStatus,workspaceFailure} from '@/server/hub/domain/access-status';
+import {resolveDeliveryTarget} from '@/server/hub/domain/delivery-target';
 export const runtime='nodejs';export const dynamic='force-dynamic';export const maxDuration=60;
 function reply(value:unknown){return NextResponse.json(value,{headers:NO_STORE});}
 export async function GET(request:Request){
@@ -18,7 +19,16 @@ export async function GET(request:Request){
   case 'logs':return reply(await logs(a.db,master));
   case 'recommendations':return reply(await recommendations(a.db,(await getPreferences(a.db)).freshnessHours));
   case 'settings':{const preferences=await getPreferences(a.db);return reply({preferences,retention:await retentionPreview(a.db,preferences.retentionDays),schedulerEnabled:false});}
-  case 'integration':return reply({publicationEnabled:false,workerInstalled:false,outbox:(await a.db.execute('SELECT status,count(*) total FROM hub_publish_outbox GROUP BY status')).rows,approved:Number((await a.db.execute("SELECT count(*) n FROM hub_items WHERE review_state='approved'")).rows[0].n),note:'No delivery to Supabase or social platforms is enabled.'});
+  case 'integration':{
+   // Status sebenarnya: tujuan terbit, saklar redaktur, jumlah terbit hari ini.
+   let outbox:Record<string,unknown>[]=[];let publishedToday=0;let approved=0;
+   try{outbox=(await a.db.execute('SELECT status,count(*) total FROM hub_publish_outbox GROUP BY status')).rows;}catch{}
+   try{const dayStart=new Date();dayStart.setUTCHours(0,0,0,0);publishedToday=Number((await a.db.execute({sql:"SELECT count(*) n FROM hub_publish_outbox WHERE status='published' AND created_at>=?",args:[dayStart.toISOString()]})).rows[0].n);}catch{}
+   try{approved=Number((await a.db.execute("SELECT count(*) n FROM hub_items WHERE review_state='approved'")).rows[0].n);}catch{}
+   const target=resolveDeliveryTarget();
+   return reply({destination:{configured:target.source!=='none',source:target.source},outbox,publishedToday,approved,
+    note:target.source==='none'?'Tujuan terbit belum terkonfigurasi: artikel tidak akan masuk ke portal.':'Artikel terbit ditulis ke tabel articles di Supabase portal.'});
+  }
   default:return errorJson('Menu tidak dikenal.',400);
  }}catch{return errorJson('Data belum dapat dibaca. Siapkan skema dan periksa master arsip; data lama tidak dihapus.',409);}
 }

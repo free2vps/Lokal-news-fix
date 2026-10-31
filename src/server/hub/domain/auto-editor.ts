@@ -304,7 +304,7 @@ type Candidate = {
   tier: string; sourceId: string; sourceName: string; rights: string; snippet: string; dateRaw: string | null; priority: boolean;
 };
 
-export type PullSource = {id: string; name: string; ok: boolean; inserted: number; error?: string; processed?: number; skipped?: number; invalid?: number};
+export type PullSource = {id: string; name: string; ok: boolean; inserted: number; error?: string; processed?: number; skipped?: number; invalid?: number; cooled?: boolean};
 export type StepResult = {step: string; ok: boolean; detail: string; count?: number; sources?: PullSource[]};
 export type RunOptions = {
   now?: number; trigger?: string; deliver?: Deliver; master?: string;
@@ -330,7 +330,7 @@ export async function runAutoEditor(db: Client, opts: RunOptions = {}) {
     try {
       const sources = (await db.execute({sql: "SELECT id,name,rights_status FROM hub_sources WHERE source_kind='rss' AND is_active=1 AND discovered_type='rss' AND feed_url IS NOT NULL AND rights_status!='unknown' ORDER BY updated_at DESC", args: []})).rows;
       const limit = clamp(opts.maxSources, 1, 60, AUTO_EDITOR_POLICY.rssSourcesPerRun);
-      let ok = 0, fail = 0, scanned = 0;
+      let ok = 0, fail = 0, scanned = 0, cooled = 0;
       const perSource: PullSource[] = [];
       for (const s of sources.slice(0, limit)) {
         if (Date.now() - started > budget) break;
@@ -342,17 +342,23 @@ export async function runAutoEditor(db: Client, opts: RunOptions = {}) {
           perSource.push({id: String(s.id), name: String(s.name || ''), ok: true, inserted,
             processed: Number(r?.processed || 0), skipped: Number(r?.skipped || 0), invalid: Number(r?.invalid || 0)});
         } catch (e) {
-          fail += 1;
           const code = (e instanceof Error ? e.message : '').replace(/[^A-Z0-9_]/g, '').slice(0, 40) || 'RSS_ERROR';
+          // Cooldown bukan kegagalan feed: sumber ini baru saja ditarik pada putaran sebelumnya.
+          if (code === 'JOB_COOLDOWN') {
+            cooled += 1;
+            perSource.push({id: String(s.id), name: String(s.name || ''), ok: true, inserted: 0, cooled: true});
+            continue;
+          }
+          fail += 1;
           perSource.push({id: String(s.id), name: String(s.name || ''), ok: false, inserted: 0, error: code});
         }
       }
-      const zero = perSource.filter(x => x.ok && x.inserted === 0).length;
+      const zero = perSource.filter(x => x.ok && !x.cooled && x.inserted === 0).length;
       const read = perSource.reduce((a, x) => a + (x.processed || 0), 0);
       const dup = perSource.reduce((a, x) => a + (x.skipped || 0), 0);
       const bad = perSource.reduce((a, x) => a + (x.invalid || 0), 0);
       const detail = sources.length
-        ? `${scanned}/${sources.length} sumber diperiksa, ${read} item dibaca, ${pulled} berita baru, ${dup} duplikat${bad ? `, ${bad} tidak valid` : ''}${zero ? `, ${zero} sumber tanpa berita baru` : ''}${fail ? `, ${fail} gagal` : ''}${pulled === 0 && read > 0 ? ' — tekan "Diagnosa tarikan" untuk melihat contoh item' : ''}`
+        ? `${scanned}/${sources.length} sumber diperiksa, ${read} item dibaca, ${pulled} berita baru, ${dup} duplikat${bad ? `, ${bad} tidak valid` : ''}${zero ? `, ${zero} sumber tanpa berita baru` : ''}${cooled ? `, ${cooled} dilewati (baru ditarik <2 menit lalu)` : ''}${fail ? `, ${fail} gagal` : ''}${pulled === 0 && read > 0 ? ' — tekan "Diagnosa tarikan" untuk melihat contoh item' : ''}`
         : 'Belum ada sumber RSS aktif dengan hak yang jelas — tidak ada yang ditarik';
       steps.push({step: 'pull', ok: true, detail, count: pulled, sources: perSource});
     } catch { push('pull', false, 'Gagal membaca daftar sumber', 0); }
@@ -505,7 +511,7 @@ export async function runAutoEditor(db: Client, opts: RunOptions = {}) {
     : `Tidak ada yang dipilih (sisa kuota hari ini ${room})`, picked.length);
 
   // 7. Terbit otomatis + catat outbox (idempoten per item+versi).
-  let published = 0, duplicates = 0;
+  let published = 0, duplicates = 0, retried = 0;
   const failed: {id: string; code: string}[] = [];
   if (picked.length) {
     // BUG yang diperbaiki: jalur redaktur otomatis dulu selalu memakai adapter kosong
@@ -527,7 +533,12 @@ export async function runAutoEditor(db: Client, opts: RunOptions = {}) {
         args: [c.id, c.version, snapshot, new Date(now).toISOString(), 'auto-editor:' + c.method]});
       const ins = await db.execute({sql: "INSERT INTO hub_publish_outbox(id,idempotency_key,item_id,approved_version,snapshot_json,status,created_at) VALUES(?,?,?,?,?,'sending',?) ON CONFLICT(idempotency_key) DO NOTHING",
         args: [randomUUID(), key, c.id, c.version, snapshot, new Date(now).toISOString()]});
-      if (ins.rowsAffected) claimed.push(c);
+      if (ins.rowsAffected) { claimed.push(c); continue; }
+      // BUG yang diperbaiki: baris outbox berstatus 'failed' dari putaran sebelumnya terkunci
+      // selamanya oleh idempotency_key, sehingga artikel tidak pernah dicoba lagi.
+      const retry = await db.execute({sql: "UPDATE hub_publish_outbox SET status='sending', snapshot_json=?, created_at=? WHERE idempotency_key=? AND status='failed'",
+        args: [snapshot, new Date(now).toISOString(), key]});
+      if (retry.rowsAffected) { claimed.push(c); retried += 1; }
     }
     try {
       const result = await deliver(claimed.map(c => ({id: c.id, version: c.version, snapshot: JSON.parse(JSON.stringify({
@@ -541,13 +552,23 @@ export async function runAutoEditor(db: Client, opts: RunOptions = {}) {
       for (const id of result.published) await db.execute({sql: "UPDATE hub_publish_outbox SET status='published' WHERE item_id=? AND status='sending'", args: [id]});
       for (const id of result.duplicates) await db.execute({sql: "UPDATE hub_publish_outbox SET status='duplicate' WHERE item_id=? AND status='sending'", args: [id]});
       for (const f of result.failed) await db.execute({sql: "UPDATE hub_publish_outbox SET status='failed' WHERE item_id=? AND status='sending'", args: [f.id]});
-      push('publish', failed.length === 0, `${published} terbit, ${duplicates} sudah ada, ${failed.length} gagal`, published);
+      push('publish', failed.length === 0, `${published} terbit, ${duplicates} sudah ada, ${failed.length} gagal${retried ? ` (${retried} percobaan ulang dari putaran sebelumnya)` : ''}`, published);
     } catch (e) {
       const code = (e instanceof Error ? e.message : '').replace(/[^A-Z0-9_]/g, '').slice(0, 50) || 'PUBLISH_FAILED';
       for (const c of claimed) await db.execute({sql: "UPDATE hub_publish_outbox SET status='failed' WHERE item_id=? AND status='sending'", args: [c.id]});
       push('publish', false, `Pengiriman gagal: ${code} — 0 artikel terbit`, 0);
     }
-  } else push('publish', true, 'Tidak ada yang perlu diterbitkan', 0);
+  } else {
+    // picked > 0 tetapi tidak ada yang bisa diklaim: jelaskan status antreannya, jangan diam.
+    let pendingNote = '';
+    if (picked.length) {
+      try {
+        const rows = (await db.execute("SELECT status,count(*) n FROM hub_publish_outbox GROUP BY status")).rows;
+        pendingNote = ` — antrean: ${rows.map(r => `${r.status} ${r.n}`).join(', ')}`;
+      } catch { /* outbox belum ada */ }
+    }
+    push('publish', true, `Tidak ada yang perlu diterbitkan${pendingNote}`, 0);
+  }
 
   // 8. Antrean media sosial: artikel yang baru terbit langsung bisa ditarik Make
   //    dengan pemicu yang sama (maks 4 per tarikan di sisi antrean).

@@ -24,7 +24,10 @@ export default function HubModules({kind,onOpenSettings}:{kind:'x'|'youtube'|'re
  {kind==='logs'&&data&&<><h2>Riwayat sinkronisasi</h2>{data.archiveError&&<p role="alert">Arsip lama belum dapat didekripsi; periksa master arsip.</p>}<p>Log baru dan arsip dipisahkan; detail error lama disembunyikan untuk mencegah bocornya rahasia.</p><LogTable rows={data.current||[]} title="Proses baru (maks. 100)"/><LogTable rows={data.history||[]} title="Arsip Hub lama (maks. 250)"/></>}
  {kind==='settings'&&data&&<Preferences data={data} reload={load}/>}
  {kind==='integration'&&<><AutoEditorPanel/><AdvancedTools/></>}
- {kind==='integration'&&data&&<><h2>Kesiapan publikasi</h2><p>Pengiriman website: <b>nonaktif</b> · Worker: {data.workerInstalled?'tersedia':'belum dipasang'} · Revisi disetujui: {data.approved}</p><p>Persetujuan berita tidak mengirim ke Supabase atau media sosial. Penghubung publikasi merupakan tahap terpisah, bukan bagian dari tombol sinkronisasi metadata.</p><ul>{data.outbox?.map((r:any)=><li key={r.status}>{r.status}: {r.total}</li>)}</ul></>}
+ {kind==='integration'&&data&&<><h2>Kesiapan publikasi</h2>
+   <p>Tujuan terbit (tabel <code>articles</code>): <b>{data.destination?.configured?'tersambung':'BELUM tersambung'}</b>{data.destination?.source==='fallback'?' (memakai kredensial situs yang sudah ada)':data.destination?.source==='dedicated'?' (HUB_WEBSITE_*)':''} · Terbit hari ini: <b>{data.publishedToday??0}</b></p>
+   <p className="tiny">{data.note} Angka "Revisi disetujui" ({data.approved}) adalah warisan masa persetujuan manual dan tidak menentukan penerbitan.</p>
+   <p className="tiny">Antrean terbit: {(data.outbox||[]).map((r:any)=>`${r.status} ${r.total}`).join(' · ')||'kosong'}</p></>}
  </div>;
 }
 function LogTable({rows,title}:{rows:any[];title:string}){return <><h3>{title}</h3><table><thead><tr><th>Jenis</th><th>Status</th><th>Mulai / selesai</th><th>Item</th><th>Pesan</th></tr></thead><tbody>{rows.map(r=><tr key={r.id}><td>{r.kind}</td><td>{r.status}</td><td>{at(r.started_at)}<br/>{at(r.finished_at)}</td><td>{r.item_count}</td><td>{r.message}</td></tr>)}</tbody></table>{!rows.length&&<p>Belum ada log.</p>}</>;}

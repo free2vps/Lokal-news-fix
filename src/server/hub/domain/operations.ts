@@ -31,7 +31,7 @@ export async function runJob<T>(db:Client,kind:string,work:()=>Promise<{value:T;
  const now=Date.now(),tx=await db.transaction('write'),id=randomUUID(),lease=now+120000;
  try{
   await tx.execute({sql:'INSERT OR IGNORE INTO hub_jobs_v3(job) VALUES(?)',args:[kind]});
-  const r=await tx.execute({sql:'UPDATE hub_jobs_v3 SET lease_until=?,cooldown_until=? WHERE job=? AND lease_until<? AND cooldown_until<?',args:[lease,now+600000,kind,now,now]});
+  const r=await tx.execute({sql:'UPDATE hub_jobs_v3 SET lease_until=?,cooldown_until=? WHERE job=? AND lease_until<? AND cooldown_until<?',args:[lease,now+120000,kind,now,now]});
   if(!r.rowsAffected)throw Error('JOB_COOLDOWN');
   await tx.execute({sql:"INSERT INTO hub_logs_v3 VALUES(?,?,'RUNNING',0,?,NULL,'Manual sync started')",args:[id,kind,new Date(now).toISOString()]});await tx.commit();
  }catch(e){await tx.rollback();throw e;}

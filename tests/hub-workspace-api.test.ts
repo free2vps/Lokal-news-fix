@@ -15,7 +15,13 @@ test('workspace APIs enforce auth, CSRF, Preview scope and persisted settings wi
   const response=await routes.GET(new Request(origin+'/api/hub/workspace?kind=settings',{headers:{cookie}}));const data=await response.json();assert.equal(data.preferences.freshnessHours,48);assert.equal(data.retention.deleted,0);assert.equal(data.schedulerEnabled,false);assert.ok(!JSON.stringify(data).includes(setup.session));
   const denied=await routes.POST(post({action:'syncX'}));assert.equal(denied.status,409);const deniedBody=await denied.json();assert.equal(deniedBody.code,'ACCESS_NOT_CONFIRMED');assert.ok(deniedBody.error.includes('Buka Pengaturan')); // No network call: consent false.
   const access=await routes.GET(new Request(origin+'/api/hub/workspace?kind=access',{headers:{cookie}}));assert.equal(access.status,200);const state=await access.json();assert.equal(state.x.allowed,false);assert.equal(state.youtube.allowed,false);assert.equal(state.schemaReady,true);assert.equal(state.x.lastAttempt,null);assert.equal(Number((await db.execute('SELECT count(*) n FROM hub_logs_v3')).rows[0].n),0);
-  const status=await routes.GET(new Request(origin+'/api/hub/workspace?kind=integration',{headers:{cookie}}));assert.equal((await status.json()).publicationEnabled,false);
+  const status=await routes.GET(new Request(origin+'/api/hub/workspace?kind=integration',{headers:{cookie}}));
+  const integration=await status.json();
+  // Status harus mencerminkan keadaan sebenarnya, bukan teks lama "nonaktif".
+  assert.equal(typeof integration.destination?.configured,'boolean');
+  assert.ok(['dedicated','fallback','none'].includes(integration.destination?.source));
+  assert.equal(typeof integration.publishedToday,'number');
+  assert.ok(!JSON.stringify(integration).includes('SERVICE_ROLE'), 'tidak membocorkan nama kredensial');
   assert.equal((await routes.GET(new Request(origin+'/api/hub/workspace?kind=credentials',{headers:{cookie}}))).status,400);
   process.env.VERCEL_ENV='production';assert.equal((await routes.POST(post({action:'settings',preferences}))).status,403);
  }finally{db.close();names.forEach((k,i)=>{if(saved[i]===undefined)delete process.env[k];else process.env[k]=saved[i];});await rm(dir,{recursive:true,force:true});}

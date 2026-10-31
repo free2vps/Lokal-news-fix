@@ -104,3 +104,31 @@ test('variabel khusus Hub tetap diprioritaskan bila keduanya ada', async () => {
     assert.ok(urls[0].startsWith('https://hub-target.supabase.co'));
   } finally { globalThis.fetch = originalFetch; await db.close(); restore(); }
 });
+
+test('artikel yang sebelumnya gagal dikirim DICOBA LAGI, tidak terkunci selamanya', async () => {
+  const restore = withEnv({NEXT_PUBLIC_SUPABASE_URL: 'https://site.supabase.co', SUPABASE_SERVICE_ROLE_KEY: 'site-key'});
+  const {db} = await fixture();
+  try {
+    // Putaran pertama: pengiriman gagal (mis. jaringan mati) → outbox berstatus 'failed'.
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async () => new Response('no', {status: 500})) as typeof fetch;
+    const first = await runAutoEditor(db, {now: NOW, skipPull: true});
+    assert.equal(first.published, 0);
+    const afterFail = await db.execute("SELECT status,count(*) n FROM hub_publish_outbox GROUP BY status");
+    assert.equal(String(afterFail.rows[0].status), 'failed');
+
+    // Putaran kedua dengan pengiriman sehat: baris 'failed' harus dicoba lagi.
+    const sent: string[] = [];
+    globalThis.fetch = (async (input: any, init?: any) => {
+      const rows = JSON.parse(String(init?.body || '[]')) as {source_url: string}[];
+      sent.push(...rows.map(r => r.source_url));
+      return new Response(JSON.stringify(rows.map((r, i) => ({id: 'x' + i, source_url: r.source_url}))), {status: 201});
+    }) as typeof fetch;
+    const second = await runAutoEditor(db, {now: NOW + 5000, skipPull: true});
+    assert.equal(second.published, 1, 'artikel yang gagal harus terbit pada percobaan berikutnya');
+    assert.equal(sent.length, 1);
+    const publish = second.steps.find(s => s.step === 'publish')!;
+    assert.match(String(publish.detail), /percobaan ulang/);
+    globalThis.fetch = originalFetch;
+  } finally { await db.close(); restore(); }
+});
