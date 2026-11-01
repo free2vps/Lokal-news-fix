@@ -28,16 +28,17 @@ export default function Logo({ size = 40, withName = true }: { size?: number; wi
   const candidate = (process.env.NEXT_PUBLIC_SITE_LOGO || 'logo.png').replace(/^\/+/, '');
   const has = logoExists(candidate);
 
+  // shrink-0 pada pembungkus: tanpa itu, kolom pencarian di sebelahnya memeras logo di ponsel.
   return (
-    <span className="flex items-center gap-2.5 font-serif text-3xl font-bold tracking-tight text-brand">
+    <span className="flex shrink-0 items-center gap-2.5 font-serif text-3xl font-bold tracking-tight text-brand">
       {has ? (
         /* eslint-disable-next-line @next/next/no-img-element */
         <img
           src={`/${candidate}`}
           alt={SITE.name}
-          height={size}
-          style={{ height: size, width: 'auto' }}
-          className="block"
+          // `shrink-0` + `max-w-none` WAJIB: tanpa keduanya, logo di dalam baris flex
+          // (header: logo + kolom pencarian) diperas menjadi kotak sempit dan gepeng di ponsel.
+          className={`block w-auto shrink-0 object-contain ${size >= 40 ? 'h-8 sm:h-10' : 'h-7 sm:h-8'}`}
         />
       ) : (
         <span className="grid place-items-center rounded-lg bg-brand text-bg" style={{ height: size, width: size, fontSize: size * 0.6 }} aria-hidden>

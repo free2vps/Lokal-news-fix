@@ -89,11 +89,27 @@ export async function searchArticles(q: string, limit = 20) {
   return (data ?? []) as Article[];
 }
 const sitemapRowsCached = unstable_cache(async () => {
-  const { data } = await supabase().from('articles').select('slug,published_at,region,tags').order('published_at', { ascending: false }).limit(5000);
+  const { data } = await supabase().from('articles').select('slug,published_at,region,tags,title').order('published_at', { ascending: false }).limit(5000);
   return data ?? [];
 }, ['sitemap-rows'], { revalidate: 600, tags: [TAG_ARTICLES, TAG_REGIONS] });
 export async function getSitemapRows() {
   return sitemapRowsCached();
+}
+
+/** Hanya berita 48 jam terakhir — bahan sitemap berita Google News dan RSS. */
+const recentRowsCached = unstable_cache(async (hours: number, limit: number) => {
+  const since = new Date(Date.now() - hours * 3600_000).toISOString();
+  const { data } = await supabase().from('articles')
+    .select('slug,published_at,title,ai_summary,category,image_url,source_name')
+    .gte('published_at', since)
+    .order('published_at', { ascending: false })
+    .limit(limit);
+  return data ?? [];
+}, ['recent-rows'], { revalidate: 300, tags: [TAG_ARTICLES] });
+export async function getRecentRows(hours = 48, limit = 1000) {
+  return recentRowsCached(hours, limit) as Promise<
+    { slug: string; published_at: string; title: string | null; ai_summary: string | null; category: string | null; image_url: string | null; source_name: string | null }[]
+  >;
 }
 
 import type { Trend } from './types';

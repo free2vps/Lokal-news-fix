@@ -6,7 +6,8 @@ LETAK LOGO PORTAL
 
 Ketentuan yang disarankan:
 - Format PNG dengan latar transparan
-- Tinggi sekitar 80–144 piksel (lebar mengikuti)
+- Disarankan 600×150 piksel (perbandingan 4:1) agar tajam di layar beresolusi tinggi
+- Tinggi minimal 80 piksel
 - Nama situs sudah termasuk di dalam gambar (tulisan nama situs di header
   otomatis disembunyikan agar tidak dobel)
 - Berkas akan ditampilkan setinggi 40 px di header dan 32 px di footer

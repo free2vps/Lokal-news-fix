@@ -69,13 +69,23 @@ export default async function Home() {
     if (a) used.add(a.id);
     return a;
   };
-  const pemdaPick = pick(pemda);
-  const funPick = pick(fun);
-  const olahragaPick = pick(olahraga);
-  const trio = [pemdaPick, funPick, olahragaPick, ...withImg.slice(8, 11)]
-    .filter((a): a is Article => !!a)
-    .filter((a, i, arr) => arr.findIndex((x) => x.id === a.id) === i)
-    .slice(0, 3);
+  // Urutan yang diminta: Pemda → Hiburan → Olahraga.
+  const trio: Article[] = [];
+  for (const pickOne of [() => pick(pemda), () => pick(fun), () => pick(olahraga)]) {
+    const a = pickOne();
+    if (a) trio.push(a);
+  }
+  // Penting: bila salah satu kategori belum punya artikel bergambar (mis. Olahraga kosong),
+  // slot TIDAK dibiarkan kosong. Diisi berita lain yang masih bergambar sampai genap tiga,
+  // supaya baris di bawah carousel tidak pernah memperlihatkan celah.
+  if (trio.length < 3) {
+    for (const a of [...pemda, ...olahraga, ...pool, ...withImg]) {
+      if (trio.length >= 3) break;
+      if (used.has(a.id) || !good(a)) continue;
+      used.add(a.id);
+      trio.push(a);
+    }
+  }
   const shown = new Set([...slides, ...trio].map((a) => a.id));
   const leftovers = pool.filter((a) => !shown.has(a.id));
   const feed = await getMixedPage(0, { news: news.length, fun: fun.length });

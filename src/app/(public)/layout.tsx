@@ -17,7 +17,8 @@ export const metadata: Metadata = {
   description: SITE.description,
   openGraph: { type: 'website', locale: 'id_ID', siteName: SITE.name, url: SITE.url },
   twitter: { card: 'summary_large_image' },
-  alternates: { canonical: '/' },
+  // canonical + tautan RSS dalam satu objek (dua kunci 'alternates' akan saling menimpa)
+  alternates: { canonical: '/', types: { 'application/rss+xml': `${SITE.url}/rss.xml` } },
   // Syarat Google Discover: izinkan pratinjau gambar besar
   robots: { index: true, follow: true, 'max-image-preview': 'large', 'max-snippet': -1, 'max-video-preview': -1 },
 };

@@ -67,7 +67,10 @@ export default async function Detail({ params }: P) {
         description: a.meta_description || a.ai_summary.slice(0,155), ...(schemaImage ? { image: [schemaImage], thumbnailUrl: a.image_url } : {}), datePublished: a.published_at, 
         inLanguage: 'id-ID', articleSection: a.category, keywords: a.tags?.join(', '), mainEntityOfPage: url, isBasedOn: a.source_url,
         ...(region ? { contentLocation: { '@type': 'Place', name: region } } : {}),
-        author: { '@type': 'Organization', name: SITE.name, url: SITE.url }, publisher: { '@type': 'Organization', name: SITE.name, url: SITE.url },
+        author: { '@type': 'Organization', name: SITE.name, url: SITE.url },
+        // Google mensyaratkan logo penerbit untuk NewsArticle; tanpa ini artikel tidak lolos
+        // pratinjau Google News/Discover walau semua metadata lain lengkap.
+        publisher: { '@type': 'Organization', name: SITE.name, url: SITE.url, logo: { '@type': 'ImageObject', url: `${SITE.url}/logo.png`, width: 200, height: 50 } },
         sourceOrganization: { '@type': 'Organization', name: a.source_name },
       }} />
       <JsonLd data={{
