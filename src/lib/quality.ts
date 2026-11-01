@@ -54,9 +54,27 @@ export function isSiteNameTitle(title: unknown, sourceName?: unknown): boolean {
     if (src && tail.toLowerCase() === src) return true;
     if (head.length <= 60 && tail.length <= 60 && !hasNewsVerb(`${head} ${tail}`) && isOrgLike(head)) return true;
   }
+  // Berakhiran nama domain, mis. "RSUD SONDOSIA - bimakab.go.id".
+  if (m && /^([\w-]+\.)+(go\.id|co\.id|ac\.id|or\.id|sch\.id|com|net|org|id)$/i.test(m[2].trim())) return true;
   // Nama lembaga saja tanpa kata kerja berita, mis. "Kementerian Komunikasi dan Digital".
-  if (t.length <= 70 && !hasNewsVerb(t) && isOrgLike(t)) return true;
+  // WAJIB ada pemeriksaan "hampir tidak ada kata isi": tanpa ini, judul sungguhan seperti
+  // "Lowongan Kerja PT Wanhe Garment Indonesia di Pemkab Kebumen" ikut terbuang hanya karena
+  // memuat kata "PT" dan "Pemkab".
+  if (t.length <= 70 && !hasNewsVerb(t) && isOrgLike(t) && infoWords(t) <= 3) return true;
   return false;
+}
+
+/** Kata sambung yang tidak menyampaikan peristiwa apa pun. */
+const FILLER = new Set(['dan','di','ke','dari','untuk','pada','yang','dengan','oleh','ini','itu','bagi','serta','per','the','of']);
+
+/**
+ * Hitung kata isi yang benar-benar membawa informasi, tanpa kata lembaga dan kata sambung.
+ * "Kementerian Komunikasi dan Digital" → 2 (komunikasi, digital) → memang nama lembaga.
+ * "Lowongan Kerja PT Wanhe Garment Indonesia di Pemkab Kebumen" → 5 → judul berita sungguhan.
+ */
+function infoWords(text: string): number {
+  const words = text.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(Boolean);
+  return words.filter((w) => !FILLER.has(w) && !ORG_WORDS.test(w) && !/^\d+$/.test(w) && w.length >= 2).length;
 }
 
 const NEWS_VERBS = /\b(dorong|dukung|buka|tutup|resmikan|canangkan|umumkan|tetapkan|minta|imbau|larang|tinjau|kunjungi|hadiri|buka|gelar|targetkan|luncurkan|rilis|tanda\s?tangan|sebut|ungkap|jelaskan|tegaskan|pastikan|tingkatkan|bangun|renovasi|salurkan|serahkan|terima|raih|menang|kalah|kalahkan|tembus|capai|naik|turun|kena|imbas|dampak|imbangi|susun|uji|periksa|selidiki|tangkap|tahan|tuntut|gugat|putuskan|batalkan|sahkan|angket|sidang|vonis|temukan|evakuasi|selamatkan|bagikan|edukasi|sosialisasi|launching|groundbreaking)\b/i;

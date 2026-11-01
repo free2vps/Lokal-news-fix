@@ -29,3 +29,20 @@ test('B4: kata umum tidak dijadikan halaman topik', () => {
   }
   assert.deepEqual(meaningfulTags(['drakor', 'tahun', 'bupati', '2026']), ['drakor', 'bupati']);
 });
+
+test('B1 tidak boleh membuang judul berita sungguhan (regresi produksi)', () => {
+  // nyata di produksi: kartu "Lowongan Kerja PT Wanhe Garment…" sempat ikut terbuang
+  // karena judulnya memuat "PT" dan "Pemkab" tanpa kata kerja berita.
+  for (const t of [
+    'Lowongan Kerja PT Wanhe Garment Indonesia di Pemkab Kebumen',
+    'Pemkab Bima Buka Job Fair, 45 Perusahaan Ikut Serta',
+    'Dinas Pendidikan NTB Gelar Pelatihan Guru',
+    'Bupati Bekasi Buka Job Fair Virtual, 45 Perusahaan Tawarkan 1.313 Lowongan',
+  ]) assert.equal(isSiteNameTitle(t, 'Komdigi'), false, t);
+});
+
+test('B1 tetap membuang nama lembaga tanpa kata isi', () => {
+  for (const t of ['Kementerian Komunikasi dan Digital', 'Kementerian Komunikasi dan Digital - Komdigi'])
+    assert.equal(isSiteNameTitle(t, 'Komdigi'), true, t);
+  assert.equal(isSiteNameTitle('RSUD SONDOSIA - bimakab.go.id', 'x'), true);
+});
