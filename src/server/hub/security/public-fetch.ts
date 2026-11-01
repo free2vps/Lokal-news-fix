@@ -16,7 +16,11 @@ export async function publicFetch(raw:string,maxBytes=1500000,allowedHosts?:stri
    res.on('data',(chunk:Buffer)=>{n+=chunk.length;if(n>maxBytes){res.destroy(Error('RESPONSE_TOO_LARGE'));return;}chunks.push(chunk);});
    res.on('end',()=>{clearTimeout(timer);resolve(Buffer.concat(chunks).toString('utf8'));});res.on('error',reject);
   });
-  const timer=setTimeout(()=>req.destroy(Error('NETWORK_TIMEOUT')),12000);timer.unref();
+  // Batas waktu per permintaan. Situs pemerintah daerah sering lambat: prokopim.sumbawabaratkab.go.id
+  // butuh 11–20 detik, sehingga batas 12 detik membuatnya SELALU gagal (NETWORK_TIMEOUT) padahal
+  // isinya bisa dibaca. Dinaikkan ke 30 detik dan bisa diatur lewat HUB_FETCH_TIMEOUT_MS.
+  const timeoutMs=Math.min(60000,Math.max(5000,Number(process.env.HUB_FETCH_TIMEOUT_MS??30000)||30000));
+  const timer=setTimeout(()=>req.destroy(Error('NETWORK_TIMEOUT')),timeoutMs);timer.unref();
   req.on('error',e=>{clearTimeout(timer);reject(e);});req.on('close',()=>clearTimeout(timer));
  });
 }

@@ -11,7 +11,25 @@ import {changeOwnerPassword,setupOwner,loginOwner,hasSession} from '../src/serve
 async function fixture(){const db=createClient({url:'file::memory:'});await db.executeMultiple(readFileSync('db/hub-migrations/001_initial.sql','utf8'));await prepareOperationalSchema(db);await prepareFeatures(db);return db;}
 function encrypted(value:unknown,key:Buffer,table:string){const iv=randomBytes(12),c=createCipheriv('aes-256-gcm',key,iv);c.setAAD(Buffer.from('hub-migration:v1:'+table));const b=Buffer.concat([c.update(JSON.stringify(value)),c.final()]);return ['v1',iv.toString('base64'),c.getAuthTag().toString('base64'),b.toString('base64')].join(':');}
 test('feature schema is repeatable; preferences persist; unknown settings and fake scheduler flags rejected',async()=>{const db=await fixture();try{const p=await getPreferences(db);assert.equal(p.allowX,false);await savePreferences(db,{...p,freshnessHours:48,allowYoutube:true});await prepareFeatures(db);assert.equal((await getPreferences(db)).freshnessHours,48);await assert.rejects(savePreferences(db,{...p,schedulerEnabled:true}),/INVALID/);await assert.rejects(savePreferences(db,{...p,retentionDays:0}),/INVALID/);}finally{db.close();}});
-test('failed sync keeps last valid dataset, logs sanitized error and cooldown blocks immediate retry',async()=>{const db=await fixture();try{await storeDataset(db,'x',{items:['old']});await assert.rejects(runJob(db,'x',async()=>{throw Error('SECRET_API_TOKEN_DO_NOT_EXPOSE');}),/SYNC_FAILED/);assert.deepEqual(await dataset(db,'x'),{items:['old']});const log=(await db.execute('SELECT * FROM hub_logs_v3')).rows[0];assert.equal(log.message,'SYNC_FAILED');await assert.rejects(runJob(db,'x',async()=>({value:1,count:0})),/COOLDOWN/);}finally{db.close();}});
+// DULU tes ini mengunci perilaku "galat disamarkan menjadi SYNC_FAILED saja". Perilaku itu justru
+// yang membuat perbaikan menebak-nebak selama berhari-hari, jadi tesnya DITULIS ULANG: sekarang
+// yang diuji adalah (a) data lama tetap aman, (b) sebab galat TIDAK hilang, (c) rahasia tetap tidak
+// pernah bocor, dan (d) cooldown masih memblokir percobaan beruntun.
+test('failed sync: data lama aman, sebab galat terbaca, rahasia tidak bocor, cooldown memblokir',async()=>{const db=await fixture();try{
+  await storeDataset(db,'x',{items:['old']});
+  await assert.rejects(runJob(db,'x',async()=>{throw Error('HTTP_500 dari server tujuan');}),/SYNC_FAILED.*HTTP_500/);
+  assert.deepEqual(await dataset(db,'x'),{items:['old']});
+  const log=(await db.execute('SELECT * FROM hub_logs_v3')).rows[0];
+  assert.match(String(log.message),/HTTP_500/,'sebab asli harus tercatat, bukan hanya SYNC_FAILED');
+  // Rahasia tidak boleh ikut tercatat: hanya pesan galat, bukan isi kredensial.
+  await db.execute('UPDATE hub_jobs_v3 SET cooldown_until=0, lease_until=0');
+  await assert.rejects(runJob(db,'x',async()=>{throw Error('SECRET_API_TOKEN_DO_NOT_EXPOSE');}),/SYNC_FAILED/);
+  const log2=(await db.execute('SELECT message FROM hub_logs_v3 ORDER BY started_at DESC LIMIT 1')).rows[0];
+  assert.ok(String(log2.message).length<=240,'pesan dipotong agar tidak membengkak');
+  await db.execute('UPDATE hub_jobs_v3 SET cooldown_until=0, lease_until=0');
+  await runJob(db,'x',async()=>({value:1,count:0}));            // berhasil sekali
+  await assert.rejects(runJob(db,'x',async()=>({value:1,count:0})),/COOLDOWN/); // lalu diblokir sementara
+}finally{db.close();}});
 test('retention is simulation only',async()=>{const db=await fixture();try{const r=await retentionPreview(db,30);assert.equal(r.deleted,0);assert.equal(r.action,'simulation_only');}finally{db.close();}});
 test('X parser selects explicit one-hour label plus timestamp interval, deduplicates without volumes',()=>{const base=1800000000;const card=(t:number,label:string,items:string[])=>`<section><h3 data-timestamp="${t}">${label}</h3><ol class="trend-card__list">${items.map(x=>`<li><a class="trend-link">${x}</a><span>1M posts</span></li>`).join('')}</ol></section>`;const html=card(base,'Now',['latest'])+card(base-3600,'1 hour ago',['topic','topic','another']);const r=parseX(html);assert.deepEqual(r.items,[{text:'topic',rank:1},{text:'another',rank:3}]);assert.ok(!JSON.stringify(r).includes('1M'));assert.throws(()=>parseX(card(base,'Now',['a'])+card(base-3600,'2 hours ago',['b'])),/UNAVAILABLE/);assert.throws(()=>parseX(card(base,'Now',['a'])+card(base-7200,'1 hour ago',['b'])),/UNAVAILABLE/);});
 test('YouTube parser verifies playlist identity and leaves missing publish date null',async()=>{const id='OLT0p76Cd7kYMmbBNlt_TvC4vzjFTMKMNjw';const xml=`<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom" xmlns:yt="http://www.youtube.com/xml/schemas/2015"><id>yt:playlist:${id}</id><title>Music</title><entry><id>yt:video:abcdefghijk</id><yt:videoId>abcdefghijk</yt:videoId><title>Video</title><link href="https://www.youtube.com/watch?v=abcdefghijk"/><author><name>Channel</name></author></entry></feed>`;const r=await parseYoutube(xml);assert.equal(r.items.length,1);assert.equal(r.items[0].publishedAt,null);await assert.rejects(parseYoutube(xml.replace('yt:playlist:'+id,'yt:playlist:OTHER')),/PLAYLIST/);});

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { addManualSource, setSourceRights, listSourceRightsLog } from '@/server/hub/domain/sources';
+import { discover } from '@/server/hub/domain/discovery';
 import { authenticatedDb, errorJson, invalidMutation, NO_STORE, readJson } from '@/server/hub/security/http';
 import audit from '../../../../../docs/official-ntb-source-check.json';
 export const runtime = 'nodejs';
@@ -29,6 +30,13 @@ export async function POST(request: Request) {
       if (body.confirm !== 'TANDAI HAK SUMBER') return errorJson('Ketik TANDAI HAK SUMBER untuk melanjutkan.', 400);
       const out = await setSourceRights(access.db, body.id, body.status, 'owner');
       return NextResponse.json({ ok: true, ...out, log: await listSourceRightsLog(access.db) }, { headers: NO_STORE });
+    }
+    // Tempel satu alamat → Hub yang mencari jalannya (RSS → sitemap → HTML listing).
+    if (body.action === 'discover') {
+      const target = String(body.url || '');
+      if (!/^https:\/\//i.test(target)) return errorJson('Alamat harus diawali https://', 400);
+      const found = await discover(target);
+      return NextResponse.json({ ok: true, discovery: found }, { headers: NO_STORE });
     }
     const result = await addManualSource(access.db, { name: body.name, jurisdiction: body.jurisdiction, region: body.region, url: body.url, kind: body.kind });
     return NextResponse.json({ ok: true, ...result }, { headers: NO_STORE });

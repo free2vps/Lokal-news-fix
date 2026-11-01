@@ -42,7 +42,7 @@ export async function addManualSource(db: Client, input: { name: unknown; jurisd
   if (typeof input.name !== 'string' || !input.name.trim() || input.name.trim().length > 200 ||
       typeof input.jurisdiction !== 'string' || !input.jurisdiction.trim() || input.jurisdiction.trim().length > 200 ||
       typeof input.region !== 'string' || !['NTB', 'Bali', 'NTT', 'Nasional', 'Lainnya'].includes(input.region) ||
-      typeof input.url !== 'string' || input.url.length > 2000 || !['rss', 'government_website'].includes(String(input.kind))) throw new Error('SOURCE_INVALID');
+      typeof input.url !== 'string' || input.url.length > 2000 || !['rss', 'government_website', 'listing'].includes(String(input.kind))) throw new Error('SOURCE_INVALID');
   const url = normalizeSourceUrl(input.url.trim());
   const kind = String(input.kind);
   const domain = kind === 'government_website' ? governmentDomain(url) : new URL(url).hostname.toLowerCase();
@@ -52,8 +52,13 @@ export async function addManualSource(db: Client, input: { name: unknown; jurisd
     if (existing) throw new Error('SOURCE_DUPLICATE');
     if (kind === 'government_website' && (await tx.execute({ sql: "SELECT id FROM hub_sources WHERE publisher_domain=? AND source_kind='government_website' LIMIT 1", args: [domain] })).rows.length) throw new Error('SOURCE_POSSIBLE_DUPLICATE');
     const id = randomUUID(), now = new Date().toISOString();
+    // Sumber "halaman daftar" (tanpa RSS) memakai skema yang SUDAH ada: source_kind='rss' dengan
+    // discovered_type='html_listing'. Dengan begitu tidak perlu membangun ulang tabel, dan database
+    // lama tetap menerima jenis sumber baru ini.
+    const storedKind = kind === 'listing' ? 'rss' : kind;
+    const discovered = kind === 'listing' ? 'html_listing' : 'unverified';
     await tx.execute({ sql: `INSERT INTO hub_sources(id,name,jurisdiction,region,requested_url,normalized_url,publisher_domain,source_kind,discovered_type,rights_status,is_active,created_at,updated_at)
-      VALUES(?,?,?,?,?,?,?,?,'unverified','unknown',0,?,?)`, args: [id, input.name.trim(), input.jurisdiction.trim(), input.region, input.url.trim(), url, domain, kind, now, now] });
+      VALUES(?,?,?,?,?,?,?,?,?,'unknown',0,?,?)`, args: [id, input.name.trim(), input.jurisdiction.trim(), input.region, input.url.trim(), url, domain, storedKind, discovered, now, now] });
     await tx.commit();
     return { id, active: false, verified: false };
   } catch (error) { await tx.rollback(); throw error; }

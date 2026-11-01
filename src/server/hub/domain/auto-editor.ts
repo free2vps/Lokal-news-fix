@@ -4,6 +4,7 @@ import {extractiveSummary, normalizeText, runSummaryBatch, applySummary, summary
 import {valueBatch, valueStatus, TIER_LABEL} from './editorial-value';
 import {profileBatch, profileStatus} from './content-profile';
 import {syncRss} from './rss-runtime';
+import {syncListing} from './listing-runtime';
 import {defaultDeliver, targetConfigured, type Deliver} from './publish-policy';
 import {supabaseDeliver} from './publish-delivery';
 import {enqueuePublished, socialReady} from './social-pull';
@@ -24,6 +25,9 @@ import {prepareCore, schemaReport} from './schema-core';
 export const MIX_DEFAULT = 60;
 export const MIX_MIN = 0;
 export const MIX_MAX = 100;
+
+/** Sumber listing yang hanya menerima berita hiburan Asia (drakor/dracin/K-Pop/aktor/film Asia). */
+const LISTING_TOPIC_FILTERED = new Set(['beautyhaul']);
 
 export const AUTO_EDITOR_POLICY = {
   maxPerRun: 8,
@@ -342,7 +346,9 @@ export async function runAutoEditor(db: Client, opts: RunOptions = {}) {
   if (!opts.skipPull) {
     const budget = budgetLimit;
     try {
-      const sources = (await db.execute({sql: "SELECT id,name,rights_status FROM hub_sources WHERE source_kind='rss' AND is_active=1 AND discovered_type='rss' AND feed_url IS NOT NULL AND rights_status!='unknown' ORDER BY updated_at DESC", args: []})).rows;
+      // Sumber RSS dan sumber 'listing' (halaman daftar tanpa RSS) diperlakukan sama di sini:
+      // satu putaran menarik keduanya, pemilik cukup menyalakan saklarnya.
+      const sources = (await db.execute({sql: "SELECT id,name,rights_status,discovered_type FROM hub_sources WHERE is_active=1 AND discovered_type IN ('rss','html_listing') AND feed_url IS NOT NULL AND rights_status!='unknown' ORDER BY updated_at DESC", args: []})).rows;
       const limit = clamp(opts.maxSources, 1, 60, AUTO_EDITOR_POLICY.rssSourcesPerRun);
       let ok = 0, fail = 0, scanned = 0, cooled = 0;
       const perSource: PullSource[] = [];
@@ -350,7 +356,11 @@ export async function runAutoEditor(db: Client, opts: RunOptions = {}) {
         if (Date.now() - started > budget) break;
         scanned += 1;
         try {
-          const r = await syncRss(db, String(s.id)) as {inserted?: number; skipped?: number; invalid?: number; processed?: number};
+          const isListing = String(s.discovered_type) === 'html_listing';
+          // Sumber listing BeautyHaul memakai penyaring topik hiburan Asia.
+          const r = (isListing
+            ? await syncListing(db, String(s.id), {topicFilter: LISTING_TOPIC_FILTERED.has(String(s.name).toLowerCase())})
+            : await syncRss(db, String(s.id))) as {inserted?: number; skipped?: number; invalid?: number; processed?: number; filtered?: number};
           const inserted = Number(r?.inserted || 0);
           pulled += inserted; ok += 1;
           perSource.push({id: String(s.id), name: String(s.name || ''), ok: true, inserted,

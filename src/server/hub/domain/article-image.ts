@@ -22,6 +22,13 @@ const MAX_URL_LENGTH = 600;
 // Catatan: pola iklan WAJIB memakai batas kata. Tanpa batas, "uploads/2026" ikut dianggap iklan
 // karena mengandung "ads/2" — itu pernah membuat gambar berita sungguhan terbuang.
 const NOT_ARTICLE_IMAGE = /(?:logo|favicon|sprite|icon[-_/]|avatar|placeholder|spacer|1x1|pixel|gravatar|emoji|\/theme\/|\/assets\/ui\/|(?:^|[^a-z])ads?[-_/.]\d|advertisement|banner[-_]?(?:iklan|ads?))/i;
+/**
+ * Gambar bawaan situs (dipakai untuk SEMUA halaman sebagai cadangan og:image), mis.
+ * `assets/og-default.jpg` pada situs pemda. Gambar seperti ini bukan foto berita: bila dipakai,
+ * semua berita akan tampil dengan gambar yang sama — terlihat seperti kerusakan dan menyesatkan
+ * pembaca. Karena itu dianggap "tidak ada gambar", dan badan artikel dicari lebih dulu.
+ */
+const SITE_DEFAULT_IMAGE = /(?:og[-_]?default|default[-_]?(?:og|image|share)|share[-_]?image[-_]?default|social[-_]?default)/i;
 
 function absolute(raw: string | undefined | null, base: string): string | null {
   if (typeof raw !== 'string') return null;
@@ -39,7 +46,13 @@ function absolute(raw: string | undefined | null, base: string): string | null {
 }
 
 /** Urutan kepercayaan: og:image → twitter:image → link image_src → <img> pertama yang masuk akal. */
-export function imageFromHtml(html: string, baseUrl: string): string | null {
+/** Kata bermakna dari judul, dipakai untuk menilai apakah `alt` gambar cocok dengan berita. */
+function titleWords(title: string): string[] {
+  return String(title).toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/)
+    .filter(w => w.length >= 4).slice(0, 14);
+}
+
+export function imageFromHtml(html: string, baseUrl: string, opts: {title?: string} = {}): string | null {
   const $ = cheerio.load(html.slice(0, 400_000));
   const metaSelectors = [
     'meta[property="og:image:secure_url"]',
@@ -51,21 +64,28 @@ export function imageFromHtml(html: string, baseUrl: string): string | null {
   for (const selector of metaSelectors) {
     const el = $(selector).first();
     const found = absolute(el.attr('content') ?? el.attr('href'), baseUrl);
-    if (found && !NOT_ARTICLE_IMAGE.test(found)) return found;
+    if (!found || NOT_ARTICLE_IMAGE.test(found)) continue;
+    // Gambar bawaan situs bukan foto berita → jangan dipakai; badan artikel dicari di bawah.
+    if (SITE_DEFAULT_IMAGE.test(found)) break;
+    return found;
   }
-  const scopes = ['article img', 'main img', '.post-content img', '.entry-content img', '.content img', 'img'];
-  for (const scope of scopes) {
-    const candidates = $(scope).toArray();
-    for (const node of candidates) {
+  const words = titleWords(opts.title || $('meta[property="og:title"]').attr('content') || $('title').first().text() || '');
+  let best: {src: string; score: number} | null = null;
+  for (const scope of ['article img', 'main img', '.post-content img', '.entry-content img', '.content img', 'img']) {
+    for (const node of $(scope).toArray()) {
       const el = $(node);
       const src = absolute(el.attr('src') ?? el.attr('data-src') ?? el.attr('data-lazy-src'), baseUrl);
-      if (!src || NOT_ARTICLE_IMAGE.test(src)) continue;
+      if (!src || NOT_ARTICLE_IMAGE.test(src) || SITE_DEFAULT_IMAGE.test(src)) continue;
       const width = Number(el.attr('width'));
       if (Number.isFinite(width) && width > 0 && width < 200) continue; // ikon kecil
-      return src;
+      const alt = String(el.attr('alt') || '').toLowerCase();
+      let score = scope === 'img' ? 0 : 2;
+      if (words.length && words.some(w => alt.includes(w))) score += 3; // alt cocok judul = kuat
+      if (!best || score > best.score) best = {src, score};
+      if (score >= 5) return src; // sudah yakin, tidak perlu menelusuri semua gambar
     }
   }
-  return null;
+  return best?.src ?? null;
 }
 
 /**
@@ -106,7 +126,8 @@ export async function pickImageFromPage(pageUrl: string, fetcher?: (url: string)
     await checkRobots(pageUrl);
     const html = await load(pageUrl);
     if (!/<html|<!doctype/i.test(html.slice(0, 2000))) return null;
-    return imageFromHtml(html, pageUrl);
+    const title = (html.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)/i) || [])[1] || '';
+    return imageFromHtml(html, pageUrl, {title});
   } catch {
     return null;
   }

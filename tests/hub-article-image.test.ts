@@ -68,3 +68,25 @@ test('Crawl-delay dihormati: host yang baru diminta tidak diminta lagi sebelum 1
     assert.equal(await hostReady(db, 'situs.lain.test', 1000 + 1), true, 'host lain tidak terpengaruh');
   } finally { await db.close(); }
 });
+
+test('gambar bawaan situs (og-default) DITOLAK, gambar asli di badan artikel dipakai', () => {
+  // Kasus nyata jembranakab.go.id: og:image = /assets/og-default.jpg untuk semua halaman,
+  // sedangkan foto berita ada di badan artikel dengan alt = judul.
+  const html = `<html><head>
+      <meta property="og:image" content="https://jembranakab.go.id/assets/og-default.jpg">
+      <meta property="og:title" content="Jembrana Creative Festival 2026">
+    </head><body>
+      <img src="https://jembranakab.go.id/storage/uploads/x/logojembrana-scale.webp" alt="Pemerintah Kabupaten Jembrana">
+      <article>
+        <img src="https://jembranakab.go.id/img/uploads/1c0/dsc09301.jpg" alt="Jembrana Creative Festival 2026">
+        <img src="https://jembranakab.go.id/img/uploads/517/img-0690.jpg" alt="">
+      </article></body></html>`;
+  assert.equal(imageFromHtml(html, 'https://jembranakab.go.id/articles/a'),
+    'https://jembranakab.go.id/img/uploads/1c0/dsc09301.jpg');
+});
+
+test('hanya ada gambar bawaan situs → dianggap TIDAK ada gambar (lebih baik kosong daripada menyesatkan)', () => {
+  const html = `<html><head><meta property="og:image" content="https://pemda.go.id/assets/og-default.jpg">
+    <meta property="og:title" content="Judul Berita"></head><body><p>isi</p></body></html>`;
+  assert.equal(imageFromHtml(html, 'https://pemda.go.id/berita/1'), null);
+});

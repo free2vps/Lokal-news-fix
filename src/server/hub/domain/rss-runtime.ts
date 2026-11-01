@@ -6,6 +6,7 @@ import {acceptSourceItem,normalizeArticleUrl,sourceTime} from './editorial';
 import {runJob} from './operations';
 import {prepareCore} from './schema-core';
 import {pickImageFromPage,hostReady,markHost} from './article-image';
+import {verifyListing} from './listing-runtime';
 function plain(raw:unknown,max:number){const $=cheerio.load(String(raw||''));$('script,style,noscript').remove();return $.text().replace(/\s+/g,' ').trim().slice(0,max);}
 export function feedDate(item:{pubDate?:string;isoDate?:string}){const raw=item.pubDate||item.isoDate||null;if(!raw||!/(?:Z|[+-]\d{2}:?\d{2}|\bGMT|\bUTC)\s*$/i.test(raw))return {published:null,raw};try{return {published:sourceTime(item.isoDate||raw),raw};}catch{return {published:null,raw};}}
 async function source(db:Client,id:string){const r=(await db.execute({sql:"SELECT * FROM hub_sources WHERE id=? AND source_kind='rss'",args:[id]})).rows[0];if(!r||!r.feed_url)throw Error('SOURCE_NOT_READY');return r;}
@@ -91,7 +92,8 @@ export async function toggleSource(db:Client,id:string,active:boolean,opts:{veri
   if(!active){await db.execute({sql:'UPDATE hub_sources SET is_active=0,updated_at=? WHERE id=?',args:[now,id]});return {active:false,rights:String((await db.execute({sql:'SELECT rights_status FROM hub_sources WHERE id=?',args:[id]})).rows[0]?.rights_status||'unknown')};}
   const s=await source(db,id);
   if(s.discovered_type!=='rss'){
-    const verify=opts.verify??((d:Client,i:string)=>verifyRss(d,i));
+    // Sumber berjenis 'listing' (tanpa RSS) diperiksa dengan membaca halaman daftarnya.
+    const verify=opts.verify??((d:Client,i:string)=>String(s.discovered_type)==='html_listing'?verifyListing(d,i):verifyRss(d,i));
     await verify(db,id); // melempar bila feed tidak terbaca → sumber tetap nonaktif
   }
   await db.execute({sql:"UPDATE hub_sources SET is_active=1, rights_status=CASE WHEN rights_status='unknown' THEN 'permission_confirmed' ELSE rights_status END, updated_at=? WHERE id=?",args:[now,id]});

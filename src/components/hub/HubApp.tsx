@@ -186,7 +186,7 @@ function SourceForm({ onChanged }: { onChanged: () => Promise<void> }) {
     <label>Nama sumber<input required maxLength={200} value={name} onChange={e => setName(e.target.value)} /></label>
     <label>Media atau wilayah sumber<input required maxLength={200} value={jurisdiction} onChange={e => setJurisdiction(e.target.value)} /></label>
     <label>Wilayah<select value={region} onChange={e => setRegion(e.target.value)}>{['NTB','Bali','NTT','Nasional','Lainnya'].map(v => <option key={v}>{v}</option>)}</select></label>
-    <label>Jenis yang diajukan<select value={kind} onChange={e => setKind(e.target.value)}><option value="rss">RSS</option><option value="government_website">Situs pemerintah (.go.id)</option></select></label>
+    <label>Jenis yang diajukan<select value={kind} onChange={e => setKind(e.target.value)}><option value="rss">RSS</option><option value="government_website">Situs pemerintah (.go.id)</option><option value="listing">Halaman daftar artikel (situs tanpa RSS)</option></select></label>
     <label>URL HTTPS<input required type="url" maxLength={2000} value={url} onChange={e => setUrl(e.target.value)} /></label>
     <div><button className="button" disabled={busy}>{busy ? 'Menyimpan…' : 'Simpan nonaktif'}</button></div>{message && <p role="status">{message}</p>}
   </form>;

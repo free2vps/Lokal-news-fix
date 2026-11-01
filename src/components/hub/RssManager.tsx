@@ -49,15 +49,17 @@ export default function RssManager({sources, onChanged}:{sources: RssSource[] | 
       <thead><tr><th>Sumber</th><th>Berita</th><th>Aktif</th></tr></thead>
       <tbody>
         {sources.map(s => {
-          const noFeed = s.sourceKind !== 'rss';
+          // 'listing' = situs tanpa RSS; dibaca lewat halaman daftarnya, jadi saklarnya tetap bisa dinyalakan.
+  const noFeed = s.sourceKind !== 'rss' && s.discoveredType !== 'html_listing';
           return <tr key={s.id}>
             <td>
               <b>{s.name}</b>{s.jurisdiction ? <span className="muted"> · {s.jurisdiction}</span> : null}<br />
               <a className="source-url" href={safeExternal(s.requestedUrl)} target="_blank" rel="noopener noreferrer">{s.requestedUrl}</a>
+              {s.discoveredType === 'html_listing' && <div className="tiny muted">Dibaca dari halaman daftar artikel (tanpa RSS).</div>}
               {noFeed && <div className="tiny muted">Situs, bukan feed — tidak bisa dinyalakan.</div>}
               <details className="tiny"><summary>Detail</summary>
                 <div>Hak tercatat: {s.rightsStatus === 'permission_confirmed' ? 'boleh (pernyataan Anda)' : s.rightsStatus === 'metadata_only' ? 'metadata saja' : 'belum dinyatakan'}</div>
-                <div>Jenis: {s.discoveredType === 'rss' ? 'feed RSS' : s.discoveredType === 'unverified' ? 'belum terverifikasi' : s.discoveredType}</div>
+                <div>Jenis: {s.discoveredType === 'rss' ? 'feed RSS' : s.discoveredType === 'html_listing' ? 'halaman daftar (HTML)' : s.discoveredType === 'unverified' ? 'belum terverifikasi' : s.discoveredType}</div>
                 <div>Pemeriksaan terakhir: {when(s.audit?.checkedAt)}</div>
               </details>
             </td>
