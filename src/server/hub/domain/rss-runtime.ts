@@ -5,6 +5,7 @@ import {publicFetch,checkRobots} from '../security/public-fetch';
 import {acceptSourceItem,normalizeArticleUrl,sourceTime} from './editorial';
 import {runJob} from './operations';
 import {prepareCore} from './schema-core';
+import {pickImageFromPage,hostReady,markHost} from './article-image';
 function plain(raw:unknown,max:number){const $=cheerio.load(String(raw||''));$('script,style,noscript').remove();return $.text().replace(/\s+/g,' ').trim().slice(0,max);}
 export function feedDate(item:{pubDate?:string;isoDate?:string}){const raw=item.pubDate||item.isoDate||null;if(!raw||!/(?:Z|[+-]\d{2}:?\d{2}|\bGMT|\bUTC)\s*$/i.test(raw))return {published:null,raw};try{return {published:sourceTime(item.isoDate||raw),raw};}catch{return {published:null,raw};}}
 async function source(db:Client,id:string){const r=(await db.execute({sql:"SELECT * FROM hub_sources WHERE id=? AND source_kind='rss'",args:[id]})).rows[0];if(!r||!r.feed_url)throw Error('SOURCE_NOT_READY');return r;}
@@ -18,7 +19,24 @@ export async function verifyRss(db:Client,id:string){const s=await source(db,id)
  * Hak hanya diisi 'metadata_only' bila statusnya masih 'unknown'.
  */
 export async function setRssActive(db:Client,id:string,active:boolean){const s=await source(db,id);if(active&&s.discovered_type!=='rss')throw Error('SOURCE_NOT_READY');await db.execute({sql:"UPDATE hub_sources SET is_active=?,rights_status=CASE WHEN ?=1 AND rights_status='unknown' THEN 'metadata_only' ELSE rights_status END,updated_at=? WHERE id=?",args:[active?1:0,active?1:0,new Date().toISOString(),id]});return {active,rights:String(s.rights_status||'unknown')};}
-export async function syncRss(db:Client,id:string){await prepareCore(db).catch(()=>{});const s=await source(db,id);if(Number(s.is_active)!==1||s.discovered_type!=='rss'||s.rights_status==='unknown')throw Error('SOURCE_NOT_READY');return runJob(db,'rss:'+id,async()=>{const items=(await feedItems(String(s.feed_url))).slice(0,ITEMS_PER_SYNC);let inserted=0,skipped=0,invalid=0,filled=0;
+export async function syncRss(db:Client,id:string){await prepareCore(db).catch(()=>{});const s=await source(db,id);if(Number(s.is_active)!==1||s.discovered_type!=='rss'||s.rights_status==='unknown')throw Error('SOURCE_NOT_READY');return runJob(db,'rss:'+id,async()=>{const items=(await feedItems(String(s.feed_url))).slice(0,ITEMS_PER_SYNC);let inserted=0,skipped=0,invalid=0,filled=0,pageImages=0;
+ // Sebagian penerbit mengirim feed TANPA gambar sama sekali, padahal halaman artikelnya punya.
+ // Untuk item baru yang gambarnya kosong, halaman artikelnya dibaca SEKALI (robots + crawl-delay
+ // dihormati) hanya untuk mengambil alamat gambar. Dibatasi agar tetap sopan dan tidak melewati
+ // anggaran waktu putaran.
+ const startedAt=Date.now();let pageTries=0;
+ const PAGE_IMAGE_MAX=4;              // per sumber per putaran
+ const PAGE_IMAGE_BUDGET_MS=25_000;   // berhenti mencoba setelah 25 detik
+ const fillFromPage=async(itemId:string,pageUrl:string)=>{
+   if(pageTries>=PAGE_IMAGE_MAX||Date.now()-startedAt>PAGE_IMAGE_BUDGET_MS)return false;
+   let host:string;try{host=new URL(pageUrl).hostname.toLowerCase();}catch{return false;}
+   if(!await hostReady(db,host))return false;   // Crawl-delay: 10 → jarak minimal 10 detik per host
+   pageTries+=1;await markHost(db,host);
+   const img=await pickImageFromPage(pageUrl);
+   if(!img)return false;
+   await db.execute({sql:'UPDATE hub_items SET source_image_url=? WHERE id=? AND (source_image_url IS NULL OR source_image_url=?)',args:[img,itemId,'']});
+   pageImages+=1;return true;
+ };
  for(const item of items){let normalized:string;try{normalized=normalizeArticleUrl(item.link||'');}catch{invalid++;continue;}
   const title=plain(item.title,300);if(!title){invalid++;continue;}
   // Legacy identity keys differ from feed GUID keys: preserve existing records and human edits.
@@ -27,13 +45,23 @@ export async function syncRss(db:Client,id:string){await prepareCore(db).catch((
     // Isi gambar yang dulu tidak pernah diambil (data lama) tanpa mengubah identitas/versi berita.
     const img=pickImage(item);
     if(img&&!existing.source_image_url){await db.execute({sql:'UPDATE hub_items SET source_image_url=? WHERE id=?',args:[img,String(existing.id)]});filled++;}
+    // Termasuk berita yang SUDAH ada tetapi feed-nya memang tak pernah membawa gambar:
+    // halaman artikelnya dibaca sekali (robots + crawl-delay dihormati). Ini yang membuat berita
+    // Bali Puspa News yang telanjur terbit akhirnya mendapat gambar, lalu dirapikan langkah
+    // `image_repair` pada putaran yang sama.
+    else if(!img&&!existing.source_image_url)await fillFromPage(String(existing.id),normalized);
     skipped++;continue;
   }
   const d=feedDate(item);const externalId=typeof item.guid==='string'&&item.guid.length<=500?item.guid:null;
-  const result=await acceptSourceItem(db,{sourceId:id,externalId,url:normalized,title,snippet:plain(item.contentSnippet||item.summary||item.content||'',1500)||null,sourcePublishedAt:d.published,sourceDateRaw:d.raw?.slice(0,150)||null,imageUrl:pickImage(item)});
-  if(result.status==='inserted')inserted++;else skipped++;
+  const feedImage=pickImage(item);
+  const result=await acceptSourceItem(db,{sourceId:id,externalId,url:normalized,title,snippet:plain(item.contentSnippet||item.summary||item.content||'',1500)||null,sourcePublishedAt:d.published,sourceDateRaw:d.raw?.slice(0,150)||null,imageUrl:feedImage});
+  if(result.status==='inserted'){
+    inserted++;
+    // Feed tanpa gambar → coba halaman artikel (hanya untuk berita baru, jumlahnya dibatasi).
+    if(!feedImage)await fillFromPage(String(result.id),normalized);
+  }else skipped++;
  }
- return {value:{inserted,skipped,invalid,filled,processed:items.length,publicationEnabled:false},count:inserted,status:invalid?'PARTIAL':'SUCCESS'};
+ return {value:{inserted,skipped,invalid,filled,pageImages,processed:items.length,publicationEnabled:false},count:inserted,status:invalid?'PARTIAL':'SUCCESS'};
  });}
 
 /** Baca feed TANPA menulis apa pun — dipakai diagnosa tarikan. */
