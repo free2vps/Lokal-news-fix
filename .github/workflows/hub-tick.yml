@@ -1,0 +1,97 @@
+# Penjadwal gratis: Hub menjalankan satu putaran tiap 1 JAM, hanya 05:00-23:59 WITA.
+# 05..23 WITA = 21:00-23:00 dan 00:00-15:00 UTC (19 putaran/hari).
+# Putaran per jam dipakai agar tren X tidak pernah tampil basi di beranda portal.
+#
+# Siapkan secret di Settings > Secrets and variables > Actions:
+#   HUB_BASE_URL          contoh: https://lokal-news-fix-ujsf-git-webhub-free2vps.vercel.app
+#                         (tanpa garis miring di akhir)
+#   HUB_AUTOMATION_TOKEN  token dari Hub (Sekali Atur atau Lanjutan > Penjadwal otomatis)
+#   HUB_BYPASS_SECRET     OPSIONAL. Hanya bila deployment Preview dilindungi "Vercel Authentication".
+#                         Ambil dari Vercel > Settings > Deployment Protection >
+#                         Protection Bypass for Automation. Tanpa ini, semua permintaan dari GitHub
+#                         dijawab 302 (halaman login Vercel) dan putaran tidak pernah berjalan.
+#
+# Tidak butuh Make. Tidak mengubah apa pun di repo selain berkas ini.
+name: Hub tick per jam
+
+on:
+  schedule:
+    - cron: '0 0-15,21-23 * * *'
+  workflow_dispatch: {}
+
+concurrency:
+  group: hub-tick
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Periksa secret sudah diisi
+        env:
+          BASE: ${{ secrets.HUB_BASE_URL }}
+          TOKEN: ${{ secrets.HUB_AUTOMATION_TOKEN }}
+        run: |
+          if [ -z "${BASE}" ] || [ -z "${TOKEN}" ]; then
+            echo "::error::Secret HUB_BASE_URL atau HUB_AUTOMATION_TOKEN belum diisi."
+            echo "Buka Settings > Secrets and variables > Actions lalu tambahkan keduanya."
+            exit 1
+          fi
+          case "${BASE}" in
+            */) echo "::error::HUB_BASE_URL tidak boleh diakhiri garis miring."; exit 1 ;;
+          esac
+          echo "URL Hub: ${BASE}"
+
+      - name: Jalankan redaktur otomatis
+        env:
+          BASE: ${{ secrets.HUB_BASE_URL }}
+          TOKEN: ${{ secrets.HUB_AUTOMATION_TOKEN }}
+          BYPASS: ${{ secrets.HUB_BYPASS_SECRET }}
+        run: |
+          set -uo pipefail
+          # Bila Preview dilindungi Vercel Authentication, tanpa header ini jawabannya 302.
+          extra=()
+          if [ -n "${BYPASS:-}" ]; then
+            extra+=(-H "x-vercel-protection-bypass: ${BYPASS}")
+            extra+=(-H 'x-vercel-set-bypass-cookie: true')
+            echo "Mode: melewati proteksi Vercel (bypass terpasang)."
+          else
+            echo "Mode: tanpa bypass. Bila dijawab 302, Preview sedang dilindungi Vercel Authentication."
+          fi
+          code=$(curl -sS --max-time 300 --retry 3 --retry-delay 20 --retry-all-errors \
+            -o response.json -w '%{http_code}' -X POST \
+            -H "Authorization: Bearer ${TOKEN}" \
+            -H 'Accept: application/json' \
+            "${extra[@]}" \
+            "${BASE}/api/hub/auto-editor?action=run" || echo "000")
+          echo "HTTP ${code}"
+
+          if [ ! -s response.json ]; then
+            echo "::error::Tidak ada jawaban dari Hub (HTTP ${code}). Periksa HUB_BASE_URL."
+            exit 1
+          fi
+
+          if command -v jq >/dev/null 2>&1; then
+            echo "--- Ringkasan ---"
+            jq -r '
+              "status=\(.status // "?") ditarik=\(.pulled // 0) kandidat=\(.candidates // 0) dipilih=\(.selected // 0) terbit=\(.published // 0)",
+              ((.steps // [])[] | " - \(.step): \(if .ok then "ok" else "GAGAL" end) \(.detail)")
+            ' response.json 2>/dev/null || cat response.json
+          else
+            cat response.json
+          fi
+
+          case "${code}" in
+            200) exit 0 ;;
+            401) echo "::error::Token ditolak (401). Buat token baru dan perbarui secret HUB_AUTOMATION_TOKEN."; exit 1 ;;
+            302) echo "::error::Dijawab 302 — Preview dilindungi Vercel Authentication, putaran TIDAK berjalan. Tambahkan secret HUB_BYPASS_SECRET (Vercel > Settings > Deployment Protection > Protection Bypass for Automation)."; exit 1 ;;
+            403) echo "::error::Ditolak (403). Hub tidak mengizinkan perubahan di alamat itu. Periksa HUB_WRITE_TARGET (production/both) dan pastikan HUB_BASE_URL mengarah ke domain yang benar."; exit 1 ;;
+            404) echo "::error::Tidak ditemukan (404). HUB_BASE_URL salah atau deployment sudah dihapus."; exit 1 ;;
+            409) echo "::warning::Putaran ditolak (409). Biasanya cooldown; coba lagi >2 menit."; exit 0 ;;
+            000) echo "::error::Hub tidak menjawab (timeout/jaringan)."; exit 1 ;;
+            *)   echo "::error::Gagal: HTTP ${code}"; exit 1 ;;
+          esac
