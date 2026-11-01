@@ -1,0 +1,33 @@
+# Pemeriksaan otomatis setiap push/PR: tipe, tes, build, dan penjaga ISR.
+# Sebelumnya 252+ tes hanya berjalan manual — tes yang tidak pernah dijalankan tidak menjaga apa pun.
+name: CI
+on:
+  push:
+    branches: [main, webhub]
+  pull_request:
+  workflow_dispatch: {}
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Tipe
+        run: npx tsc --noEmit
+      - name: Tes
+        run: npm test
+      - name: Build
+        run: npm run build 2>&1 | tee build.log
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key
+          SUPABASE_SERVICE_ROLE_KEY: placeholder-service-role
+      - name: Penjaga ISR
+        run: npm run check:isr
