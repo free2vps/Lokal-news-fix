@@ -4,14 +4,17 @@ import { NextResponse } from 'next/server';
 import { NO_STORE, errorJson, invalidMutation, readJson } from '../security/http';
 import { PREVIEW_INITIAL_SQL } from './bootstrap-sql';
 import { bootstrapTargetMatches } from './target';
+import { writesAllowed } from '../security/write-gate';
 export { bootstrapTargetMatches } from './target';
 
 type Env = Readonly<Record<string, string | undefined>>;
 
 /** All four server-side checks are required. Missing Vercel system metadata fails closed. */
 export function canBootstrapPreview(env: Env = process.env): boolean {
-  return env.VERCEL === '1' && env.VERCEL_ENV === 'preview' &&
-    env.VERCEL_GIT_COMMIT_REF === 'webhub' && env.HUB_BOOTSTRAP_ALLOW === 'true';
+  // Dulu terkunci mati ke Preview branch webhub sehingga Production tidak pernah bisa
+  // menyiapkan skemanya sendiri. Sekarang mengikuti saklar yang sama dengan API lain
+  // (HUB_WRITE_TARGET), tetap ditambah izin eksplisit HUB_BOOTSTRAP_ALLOW.
+  return env.VERCEL === '1' && writesAllowed(env) && env.HUB_BOOTSTRAP_ALLOW === 'true';
 }
 
 function validSetupSecret(secret: unknown): secret is string {

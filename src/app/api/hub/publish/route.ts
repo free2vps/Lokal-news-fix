@@ -1,3 +1,4 @@
+import {writesAllowed,writeGateMessage} from '@/server/hub/security/write-gate';
 import {NextResponse} from 'next/server';
 import {authenticatedDb,errorJson,invalidMutation,NO_STORE,readJson} from '@/server/hub/security/http';
 import {preparePublishSchema,readConfig,buildPlan,dryRun,arm,disarm,publishArmed,publishStatus,updateConfig,setSchedule,PUBLISH_POLICY} from '@/server/hub/domain/publish-policy';
@@ -35,7 +36,7 @@ export async function GET(request:Request){
 export async function POST(request:Request){
   const invalid=invalidMutation(request);if(invalid)return invalid;
   const a=await authenticatedDb(request);if(a.error)return a.error;
-  if(process.env.VERCEL_ENV!=='preview'||process.env.VERCEL_GIT_COMMIT_REF!=='webhub')return errorJson('Autopublish dibatasi Preview webhub.',403);
+  if(!writesAllowed())return errorJson(writeGateMessage(),403);
   const actor='owner';
   try{
     const b=await readJson(request);

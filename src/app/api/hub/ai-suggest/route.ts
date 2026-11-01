@@ -1,3 +1,4 @@
+import {writesAllowed,writeGateMessage} from '@/server/hub/security/write-gate';
 import {NextResponse} from 'next/server';
 import {authenticatedDb,errorJson,invalidMutation,NO_STORE,readJson} from '@/server/hub/security/http';
 import {suggestSummary} from '@/server/hub/domain/ai-runtime';
@@ -5,7 +6,7 @@ export const runtime='nodejs';export const dynamic='force-dynamic';export const 
 export async function POST(request:Request){
  const rejected=invalidMutation(request);if(rejected)return rejected;
  const a=await authenticatedDb(request);if(a.error)return a.error;
- if(process.env.VERCEL_ENV!=='preview'||process.env.VERCEL_GIT_COMMIT_REF!=='webhub')return errorJson('AI ini dibatasi Preview webhub.',403);
+ if(!writesAllowed())return errorJson(writeGateMessage(),403);
  try{
   const b=await readJson(request);
   if(typeof b.id!=='string'||!/^(?:legacy-news:)?[0-9a-f-]{36}$/.test(b.id)||!Number.isInteger(b.version)||Number(b.version)<1)return errorJson('ID/versi tidak valid.',400);

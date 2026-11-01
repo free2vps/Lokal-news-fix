@@ -1,3 +1,4 @@
+import {writesAllowed,writeGateMessage} from '@/server/hub/security/write-gate';
 import {NextResponse} from 'next/server';
 import {authenticatedDb,errorJson,invalidMutation,NO_STORE,readJson} from '@/server/hub/security/http';
 import {getHubDb} from '@/server/hub/db/client';
@@ -15,7 +16,7 @@ const MESSAGES:Record<string,string>={
   CONFIRM_REQUIRED:'Konfirmasi teks tidak cocok.',
 };
 const msg=(e:unknown)=>MESSAGES[(e as Error)?.message||'']||'Redaktur otomatis gagal; langkah yang sudah selesai tetap tersimpan.';
-const previewOk=()=>process.env.VERCEL_ENV==='preview'&&process.env.VERCEL_GIT_COMMIT_REF==='webhub';
+const previewOk=()=>writesAllowed();
 
 export async function GET(request:Request){
   const a=await authenticatedDb(request);if(a.error)return a.error;

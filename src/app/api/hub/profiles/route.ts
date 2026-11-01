@@ -1,3 +1,4 @@
+import {writesAllowed,writeGateMessage} from '@/server/hub/security/write-gate';
 import {NextResponse} from 'next/server';
 import {authenticatedDb,errorJson,invalidMutation,NO_STORE,readJson} from '@/server/hub/security/http';
 import {prepareProfiles,profileStatus,profileBatch,getProfile} from '@/server/hub/domain/content-profile';
@@ -8,7 +9,7 @@ export async function GET(request:Request){const a=await authenticatedDb(request
 export async function POST(request:Request){
  const invalid=invalidMutation(request);if(invalid)return invalid;
  const a=await authenticatedDb(request);if(a.error)return a.error;
- if(process.env.VERCEL_ENV!=='preview'||process.env.VERCEL_GIT_COMMIT_REF!=='webhub')return errorJson('Profil dibatasi Preview webhub.',403);
+ if(!writesAllowed())return errorJson(writeGateMessage(),403);
  try{const b=await readJson(request);
   if(b.action==='prepare'){if(b.confirm!=='PREPARE PROFILES')return errorJson('Konfirmasi diperlukan.',400);return reply(await prepareProfiles(a.db));}
   if(b.action==='batch'){

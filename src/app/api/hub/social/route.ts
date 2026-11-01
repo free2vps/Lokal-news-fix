@@ -1,3 +1,4 @@
+import {writesAllowed,writeGateMessage} from '@/server/hub/security/write-gate';
 import {NextResponse} from 'next/server';
 import {authenticatedDb,errorJson,invalidMutation,NO_STORE,readJson} from '@/server/hub/security/http';
 import {getHubDb} from '@/server/hub/db/client';
@@ -18,7 +19,7 @@ export async function GET(request:Request){
 }
 export async function POST(request:Request){
   const url=new URL(request.url);const action=url.searchParams.get('action');
-  const previewOk=process.env.VERCEL_ENV==='preview'&&process.env.VERCEL_GIT_COMMIT_REF==='webhub';
+  const previewOk=writesAllowed();
 
   // Make.com: pull & ack memakai bearer token, tanpa sesi/CSRF.
   if((action==='pull'||action==='ack')&&request.headers.get('authorization')){
