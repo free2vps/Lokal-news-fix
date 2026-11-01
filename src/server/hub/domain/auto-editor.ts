@@ -517,25 +517,56 @@ export async function runAutoEditor(db: Client, opts: RunOptions = {}) {
   let sentToday = 0;
   try { sentToday = Number((await db.execute({sql: "SELECT count(*) n FROM hub_publish_outbox WHERE status IN ('sending','published') AND created_at>=?", args: [dayStart.toISOString()]})).rows[0].n); } catch { sentToday = 0; }
   const room = Math.max(0, cfg.maxPerDay - sentToday);
-  const capacity = Math.min(cfg.maxPerRun, room);
-  const regional = candidates.filter(c => c.scope === 'daerah').sort(byFresh);
-  const national = candidates.filter(c => c.scope === 'nasional').sort(byFresh);
+
+  // KEPUTUSAN PEMILIK: berita hiburan/infotainment TIDAK memakai jatah 60:40.
+  // Hiburan diambil lebih dulu dengan kuota hariannya sendiri, baru sisanya dibagi 60:40
+  // untuk berita daerah dan nasional. Sebelumnya hiburan ikut dihitung "nasional" sehingga
+  // berebut 3 slot dengan politik/ekonomi/hukum — akibatnya drakor nyaris tidak pernah terbit.
+  const FUN_CATEGORIES_LOCAL = ['Selebriti', 'Film & Musik', 'Gaya Hidup', 'Viral & Trending', 'Kuliner & Wisata'];
+  const isFun = (c: Candidate) => FUN_CATEGORIES_LOCAL.includes(String(c.category || ''));
+  const hiburanPerDay = (() => {
+    const raw = Number(process.env.HUB_HIBURAN_PER_DAY ?? 3);
+    return Number.isFinite(raw) ? Math.max(0, Math.min(10, Math.round(raw))) : 3;
+  })();
+  let hiburanToday = 0;
+  try {
+    hiburanToday = Number((await db.execute({
+      // Nama kolom di dalam snapshot adalah 'editorialCategory' (bukan 'category').
+      // Salah nama = hitungan selalu 0 = kuota hiburan terulang tiap putaran.
+      sql: `SELECT count(*) n FROM hub_publish_outbox
+            WHERE status IN ('sending','published') AND created_at>=?
+              AND (json_extract(snapshot_json,'$.editorialCategory') IN (${FUN_CATEGORIES_LOCAL.map(() => '?').join(',')})
+                OR json_extract(snapshot_json,'$.category') IN (${FUN_CATEGORIES_LOCAL.map(() => '?').join(',')}))`,
+      args: [dayStart.toISOString(), ...FUN_CATEGORIES_LOCAL, ...FUN_CATEGORIES_LOCAL],
+    })).rows[0]?.n || 0);
+  } catch { hiburanToday = 0; }   // kolom/potongan JSON berbeda → anggap belum ada
+
+  const funPool = candidates.filter(isFun).sort(byFresh);
+  const funQuota = Math.min(Math.max(0, hiburanPerDay - hiburanToday), funPool.length, room);
+  const picked: Candidate[] = [...funPool.slice(0, funQuota)];
+
+  // Sisa kapasitas untuk berita non-hiburan, tetap 60:40.
+  const roomAfterFun = Math.max(0, room - picked.length);
+  const capacity = Math.min(cfg.maxPerRun, roomAfterFun);
+  const regional = candidates.filter(c => c.scope === 'daerah' && !isFun(c)).sort(byFresh);
+  const national = candidates.filter(c => c.scope === 'nasional' && !isFun(c)).sort(byFresh);
   const regionalTarget = Math.round((capacity * cfg.mixRegionalPct) / 100);
   const nationalTarget = Math.max(0, capacity - regionalTarget);
-  const picked: Candidate[] = [];
   picked.push(...regional.slice(0, regionalTarget));
   picked.push(...national.slice(0, nationalTarget));
   // Bila salah satu sisi kurang, sisa kapasitas diisi dari sisi lain — KECUALI porsi disetel ekstrem
   // (100% = hanya daerah, 0% = hanya nasional), agar angka itu benar-benar berarti.
-  if (picked.length < capacity && cfg.mixRegionalPct > MIX_MIN && cfg.mixRegionalPct < MIX_MAX) {
+  const targetAfterFun = funQuota + capacity;
+  if (picked.length < targetAfterFun && cfg.mixRegionalPct > MIX_MIN && cfg.mixRegionalPct < MIX_MAX) {
     const rest = [...regional.slice(regionalTarget), ...national.slice(Math.max(0, capacity - regionalTarget))].sort(byFresh);
-    for (const c of rest) { if (picked.length >= capacity) break; if (!picked.includes(c)) picked.push(c); }
+    for (const c of rest) { if (picked.length >= targetAfterFun) break; if (!picked.includes(c)) picked.push(c); }
   }
-  const tookRegional = picked.filter(c => c.scope === 'daerah').length;
-  const tookNational = picked.length - tookRegional;
+  const tookFun = picked.filter(isFun).length;
+  const tookRegional = picked.filter(c => c.scope === 'daerah' && !isFun(c)).length;
+  const tookNational = picked.length - tookRegional - tookFun;
   if (!room && candidates.length) reasons.daily_limit_reached = candidates.length;
   push('select', true, picked.length
-    ? `${picked.length} dipilih: ${tookRegional} daerah + ${tookNational} nasional (target ${cfg.mixRegionalPct}:${100 - cfg.mixRegionalPct}, sisa kuota hari ini ${room})`
+    ? `${picked.length} dipilih: ${tookRegional} daerah + ${tookNational} nasional (target ${cfg.mixRegionalPct}:${100 - cfg.mixRegionalPct}) + ${tookFun} hiburan (kuota hiburan ${hiburanPerDay}/hari, di luar 60:40; sisa kuota hari ini ${room})`
     : `Tidak ada yang dipilih (sisa kuota hari ini ${room})`, picked.length);
 
   // 7. Terbit otomatis + catat outbox (idempoten per item+versi).
@@ -652,6 +683,25 @@ export async function runAutoEditor(db: Client, opts: RunOptions = {}) {
     // Kegagalan tren TIDAK boleh menggagalkan penarikan berita — cukup dicatat apa adanya.
     const msg = readable(e);
     push('sync_trend', false, /JOB_COOLDOWN/.test(msg) ? 'Tren X baru saja ditarik — dilewati giliran ini' : `Tren X gagal ditarik (${msg})`, 0);
+  }
+
+  // 8c. TARIK feed playlist YouTube.
+  //     Sebelumnya langkah ini TIDAK ADA sama sekali: yang ditarik hanya tren X, sehingga
+  //     laporan putaran selalu berbunyi "50 tren X + 0 video" dan panel Video kekurangan isi.
+  //     Tidak memanggil apa pun bila pemilik belum menyatakan izin (allowYoutube).
+  try {
+    const prefs = await getPreferences(db);
+    if (prefs.allowYoutube !== true) push('sync_youtube', true, 'Dilewati: akses YouTube belum diizinkan pemilik', 0);
+    else {
+      const {syncYoutube} = await import('./social');
+      const out: any = await syncYoutube(db);
+      const n = Number(out?.count || 0);
+      push('sync_youtube', true, n ? `${n} video playlist YouTube ditarik` : 'Playlist YouTube tidak mengembalikan video', n);
+    }
+  } catch (e) {
+    // Sama seperti tren: kegagalan YouTube tidak boleh menggagalkan penarikan berita.
+    const msg = readable(e);
+    push('sync_youtube', false, /JOB_COOLDOWN/.test(msg) ? 'Feed YouTube baru saja ditarik — dilewati giliran ini' : `Feed YouTube gagal (${msg})`, 0);
   }
 
   // 9. Tren X + YouTube ke beranda portal (hanya bila tujuan terbit tersambung).

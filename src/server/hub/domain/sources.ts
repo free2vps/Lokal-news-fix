@@ -57,8 +57,12 @@ export async function addManualSource(db: Client, input: { name: unknown; jurisd
     // lama tetap menerima jenis sumber baru ini.
     const storedKind = kind === 'listing' ? 'rss' : kind;
     const discovered = kind === 'listing' ? 'html_listing' : 'unverified';
-    await tx.execute({ sql: `INSERT INTO hub_sources(id,name,jurisdiction,region,requested_url,normalized_url,publisher_domain,source_kind,discovered_type,rights_status,is_active,created_at,updated_at)
-      VALUES(?,?,?,?,?,?,?,?,?,'unknown',0,?,?)`, args: [id, input.name.trim(), input.jurisdiction.trim(), input.region, input.url.trim(), url, domain, storedKind, discovered, now, now] });
+    // `feed_url` WAJIB diisi untuk sumber RSS/listing. Sebelumnya dibiarkan NULL, sehingga
+    // `source()` di rss-runtime selalu melempar SOURCE_NOT_READY dan saklar Aktif tidak pernah
+    // bisa dinyalakan — sumber yang baru ditambahkan mustahil dipakai.
+    const feedUrl = kind === 'rss' || kind === 'listing' ? url : null;
+    await tx.execute({ sql: `INSERT INTO hub_sources(id,name,jurisdiction,region,requested_url,normalized_url,publisher_domain,source_kind,discovered_type,feed_url,rights_status,is_active,created_at,updated_at)
+      VALUES(?,?,?,?,?,?,?,?,?,?,'unknown',0,?,?)`, args: [id, input.name.trim(), input.jurisdiction.trim(), input.region, input.url.trim(), url, domain, storedKind, discovered, feedUrl, now, now] });
     await tx.commit();
     return { id, active: false, verified: false };
   } catch (error) { await tx.rollback(); throw error; }

@@ -58,7 +58,14 @@ test('manual source addition is inactive, unverified, network-free and deduplica
     const added = await addManualSource(db, source);
     assert.equal(added.active, false); assert.equal(added.verified, false);
     const row = (await db.execute({ sql: 'SELECT * FROM hub_sources WHERE id=?', args: [added.id] })).rows[0];
-    assert.equal(row.discovered_type, 'unverified'); assert.equal(row.feed_url, null); assert.equal(Number(row.is_active), 0);
+    assert.equal(row.discovered_type, 'unverified'); assert.equal(Number(row.is_active), 0);
+    // SYARAT agar sumber bisa diaktifkan: alamat feed tersimpan. Sebelumnya null, dan
+    // saklar Aktif selalu dijawab "Sumber belum siap".
+    assert.equal(row.feed_url, 'https://example.test/rss');
+    // Sumber situs pemerintah belum punya alamat feed; itu baru ditentukan saat penemuan.
+    const gov = await addManualSource(db, { name: 'Situs uji', jurisdiction: 'Uji', region: 'NTB', url: 'https://zzcontoh9999.bulelengkab.go.id/', kind: 'government_website' });
+    const govRow = (await db.execute({ sql: 'SELECT feed_url FROM hub_sources WHERE id=?', args: [gov.id] })).rows[0];
+    assert.equal(govRow.feed_url, null);
     await assert.rejects(() => addManualSource(db, source), /SOURCE_DUPLICATE/);
     await assert.rejects(() => addManualSource(db, { ...source, url: 'https://localhost/rss' }), /URL_INVALID/);
     await assert.rejects(() => addManualSource(db, { ...source, url: 'https://portal.lomboktimurkab.go.id/lain', kind: 'government_website' }), /SOURCE_POSSIBLE_DUPLICATE/);

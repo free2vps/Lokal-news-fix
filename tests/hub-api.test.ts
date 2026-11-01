@@ -29,7 +29,7 @@ test('source API requires session and CSRF; adds only inactive unverified source
     const created = await routes.POST(request()); assert.equal(created.status, 200); const data = await created.json(); assert.equal(data.active, false); assert.equal(data.verified, false);
     assert.equal((await routes.POST(request())).status, 409);
     const response = await routes.GET(new Request(base + '/api/hub/sources', { headers: { cookie } })); const result = await response.json();
-    assert.equal(result.sources.length, 12); const row = result.sources.find((s: { id: string }) => s.id === data.id); assert.equal(row.active, false); assert.equal(row.discoveredType, 'unverified'); assert.equal(row.feedUrl, null);
+    assert.equal(result.sources.length, 12); const row = result.sources.find((s: { id: string }) => s.id === data.id); assert.equal(row.active, false); assert.equal(row.discoveredType, 'unverified'); assert.equal(row.feedUrl, 'https://example.test/feed'); // wajib terisi agar saklar Aktif bisa dipakai
   } finally {
     db.close();
     if (oldUrl === undefined) delete process.env.HUB_DATABASE_URL; else process.env.HUB_DATABASE_URL = oldUrl;

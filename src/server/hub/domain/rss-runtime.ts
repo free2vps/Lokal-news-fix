@@ -9,7 +9,14 @@ import {pickImageFromPage,hostReady,markHost} from './article-image';
 import {verifyListing} from './listing-runtime';
 function plain(raw:unknown,max:number){const $=cheerio.load(String(raw||''));$('script,style,noscript').remove();return $.text().replace(/\s+/g,' ').trim().slice(0,max);}
 export function feedDate(item:{pubDate?:string;isoDate?:string}){const raw=item.pubDate||item.isoDate||null;if(!raw||!/(?:Z|[+-]\d{2}:?\d{2}|\bGMT|\bUTC)\s*$/i.test(raw))return {published:null,raw};try{return {published:sourceTime(item.isoDate||raw),raw};}catch{return {published:null,raw};}}
-async function source(db:Client,id:string){const r=(await db.execute({sql:"SELECT * FROM hub_sources WHERE id=? AND source_kind='rss'",args:[id]})).rows[0];if(!r||!r.feed_url)throw Error('SOURCE_NOT_READY');return r;}
+async function source(db:Client,id:string){
+ const r=(await db.execute({sql:"SELECT * FROM hub_sources WHERE id=? AND source_kind='rss'",args:[id]})).rows[0];
+ if(!r)throw Error('SOURCE_NOT_READY');
+ // Sumber yang ditambahkan sebelum perbaikan tidak punya feed_url. Pakai requested_url sebagai
+ // cadangan supaya sumber itu tidak perlu dihapus lalu dimasukkan ulang.
+ if(!r.feed_url&&r.requested_url){await db.execute({sql:'UPDATE hub_sources SET feed_url=? WHERE id=? AND feed_url IS NULL',args:[String(r.requested_url),id]});r.feed_url=r.requested_url;}
+ if(!r.feed_url)throw Error('SOURCE_NOT_READY');
+ return r;}
 /** Jumlah item teratas yang diambil per tarikan. Terlalu kecil = berita hilang selamanya,
  *  karena tarikan berikutnya hanya melihat item yang lebih baru lagi. */
 export const ITEMS_PER_SYNC = Number(process.env.HUB_RSS_ITEMS_PER_SYNC ?? 30);
