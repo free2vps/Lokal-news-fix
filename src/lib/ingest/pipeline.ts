@@ -43,6 +43,10 @@ async function build(s: Source, c: Candidate) {
 }
 
 export async function runSync(opts: { sourceId?: number } = {}) {
+  if (process.env.CONTENT_HUB_ENABLED === 'true') {
+    const { importContentHub } = await import('../content-hub/import');
+    return importContentHub();
+  }
   const db = supabaseAdmin();
   let q = db.from('sources').select('*').eq('active', true);
   if (opts.sourceId) q = q.eq('id', opts.sourceId);

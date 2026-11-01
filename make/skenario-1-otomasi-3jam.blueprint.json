@@ -1,0 +1,83 @@
+{
+  "name": "Content Hub — otomasi tiap 3 jam",
+  "flow": [
+    {
+      "id": 1,
+      "module": "http:ActionSendData",
+      "version": 3,
+      "parameters": {
+        "handleErrors": false,
+        "useNewZLibCompression": false,
+        "url": "https://lokal-news-fix-ujsf-64ay9i2fr-free2vps.vercel.app/api/hub/automation?action=run",
+        "method": "post",
+        "headers": [
+          {
+            "name": "Authorization",
+            "value": "Bearer GANTI_TOKEN_OTOMASI"
+          },
+          {
+            "name": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "qs": [],
+        "bodyType": "raw",
+        "parseResponse": true,
+        "authUser": null,
+        "authPass": null,
+        "timeout": "",
+        "shareCookies": false,
+        "ca": "",
+        "rejectUnauthorized": true,
+        "followRedirect": true,
+        "useQuerystring": false,
+        "gzip": true,
+        "useMtls": false,
+        "contentType": "application/json",
+        "serializeUrl": false,
+        "data": "",
+        "escapeData": false,
+        "outputIntoBundle": false
+      },
+      "mapper": {},
+      "metadata": {
+        "designer": {
+          "x": 300,
+          "y": 0
+        },
+        "parameters": [
+          {
+            "name": "url",
+            "type": "text"
+          }
+        ]
+      },
+      "name": "Jalankan pipeline 3 jam"
+    }
+  ],
+  "metadata": {
+    "instant": false,
+    "version": 1,
+    "scenario": {
+      "roundtrips": 1,
+      "maxErrors": 3,
+      "autoCommit": true,
+      "autoCommitTriggerLast": true,
+      "sequential": false,
+      "confidential": true,
+      "dataloss": false,
+      "dlq": false,
+      "freshVariables": false
+    },
+    "designer": {
+      "orphans": []
+    },
+    "zone": "eu1.make.com",
+    "notes": [],
+    "scheduling": {
+      "type": "indefinitely",
+      "interval": 10800
+    },
+    "description": "Memanggil endpoint otomasi Hub setiap 3 jam (RSS -> profil -> nilai -> ringkasan -> antrean sosial -> terbit sesuai jadwal, maks 4). Token disimpan di Make, bukan di Hub."
+  }
+}

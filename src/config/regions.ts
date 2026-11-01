@@ -2,6 +2,23 @@
 export type Region = { slug: string; name: string; aliases: string[] };
 
 export const REGIONS: Region[] = [
+  { slug: 'bali', name: 'Bali', aliases: ['Bali'] },
+  { slug: 'denpasar', name: 'Denpasar', aliases: ['Denpasar'] },
+  { slug: 'badung', name: 'Badung', aliases: ['Badung'] },
+  { slug: 'gianyar', name: 'Gianyar', aliases: ['Gianyar'] },
+  { slug: 'tabanan', name: 'Tabanan', aliases: ['Tabanan'] },
+  { slug: 'jembrana', name: 'Jembrana', aliases: ['Jembrana'] },
+  { slug: 'karangasem', name: 'Karangasem', aliases: ['Karangasem'] },
+  { slug: 'buleleng', name: 'Buleleng', aliases: ['Buleleng'] },
+  { slug: 'klungkung', name: 'Klungkung', aliases: ['Klungkung'] },
+  { slug: 'bangli', name: 'Bangli', aliases: ['Bangli'] },
+  { slug: 'ntt', name: 'Nusa Tenggara Timur', aliases: ['Nusa Tenggara Timur', 'NTT'] },
+  { slug: 'kupang', name: 'Kupang', aliases: ['Kupang'] },
+  { slug: 'manggarai', name: 'Manggarai', aliases: ['Manggarai', 'Labuan Bajo'] },
+  { slug: 'ende', name: 'Ende', aliases: ['Ende'] },
+  { slug: 'sikka', name: 'Sikka', aliases: ['Sikka', 'Maumere'] },
+  { slug: 'sumba', name: 'Sumba', aliases: ['Sumba'] },
+  { slug: 'flores', name: 'Flores', aliases: ['Flores'] },
   { slug: 'sumbawa-barat', name: 'Sumbawa Barat', aliases: ['Sumbawa Barat', 'KSB', 'Taliwang', 'Maluk', 'Jereweh', 'Poto Tano'] },
   { slug: 'sumbawa', name: 'Sumbawa', aliases: ['Sumbawa Besar', 'Kabupaten Sumbawa', 'Sumbawa'] },
   { slug: 'mataram', name: 'Kota Mataram', aliases: ['Kota Mataram', 'Mataram'] },
