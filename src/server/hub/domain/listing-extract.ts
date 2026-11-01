@@ -1,4 +1,5 @@
 import * as cheerio from 'cheerio';
+import {isLogoImage} from './article-image';
 
 /**
  * Ekstraktor "HTML Listing" — sumber berita yang TIDAK punya RSS.
@@ -35,6 +36,8 @@ const MONTHS: Record<string, number> = {
 
 /** Alamat yang jelas bukan gambar berita. */
 const NOT_IMAGE = /(?:placeholder|logo|favicon|icon[-_/]|sprite|avatar|spacer|1x1|pixel|gravatar|\/static\/assets\/)/i;
+/** Logo situs (mis. logo Google News 300×300) bukan foto berita — lihat isLogoImage(). */
+function logoish(url: string): boolean { return isLogoImage(url); }
 
 /** Kata yang menandakan kartu itu bagian navigasi, bukan artikel. */
 const NAV_SLUGS = new Set(['latest', 'beauty-event', 'skincare', 'makeup', 'hair-care', 'body-care', 'fragrance',
@@ -103,12 +106,12 @@ function cardImage(scope: cheerio.Cheerio<any>, base: string): string | null {
     .map(set => set.split(',')[0]?.trim().split(/\s+/)[0] || '')
     .find(v => v);
   const fromSource = absolute(source, base);
-  if (fromSource && !NOT_IMAGE.test(fromSource)) return fromSource;
+  if (fromSource && !NOT_IMAGE.test(fromSource) && !logoish(fromSource)) return fromSource;
   for (const node of scope.find('img').toArray()) {
     const el = scope.find('img').eq(0);
     for (const attr of ['src', 'data-src', 'data-lazy-src']) {
       const found = absolute(el.attr(attr), base);
-      if (found && !NOT_IMAGE.test(found)) return found;
+      if (found && !NOT_IMAGE.test(found) && !logoish(found)) return found;
     }
     void node;
   }

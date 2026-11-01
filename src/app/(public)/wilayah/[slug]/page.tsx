@@ -6,6 +6,14 @@ import { getByRegion } from '@/lib/queries';
 import NewsCard from '@/components/NewsCard';
 
 export const revalidate = 600;
+export const dynamicParams = true;
+export async function generateStaticParams() {
+  try {
+    const { getActiveRegions } = await import('@/lib/queries');
+    const regions = (await getActiveRegions()) as string[];
+    return regions.slice(0, 60).map((r) => ({ slug: r }));
+  } catch { return []; }
+}
 type P = { params: Promise<{ slug: string }> };
 const load = cache(getByRegion);
 

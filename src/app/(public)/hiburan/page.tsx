@@ -26,7 +26,7 @@ export default async function Hiburan() {
           <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{rest.slice(2).map((a) => <HeroCard key={a.id} a={a} size="sm" />)}</div>
           <LoadMore start={items.length} section="hiburan" initialDone={items.length < 13} />
         </>
-      ) : <p className="text-muted">Belum ada konten hiburan. Tambahkan sumber bagian “Hiburan” di /admin.</p>}
+      ) : <p className="text-muted">Belum ada konten hiburan hari ini. Coba kembali nanti, atau lihat berita utama di <Link href="/" className="text-brand hover:underline">beranda</Link>.</p>}
     </>
   );
 }

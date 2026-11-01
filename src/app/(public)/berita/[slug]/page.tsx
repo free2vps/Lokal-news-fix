@@ -11,6 +11,20 @@ import JsonLd from '@/components/JsonLd';
 import NewsCard from '@/components/NewsCard';
 
 export const revalidate = 3600;
+/**
+ * Tanpa generateStaticParams, route [slug] TIDAK PERNAH masuk ISR — halaman tetap dirender
+ * ulang setiap kunjungan (dan setiap crawl Googlebot) walau `revalidate` sudah ditulis.
+ * Daftar awal dibatasi supaya build tetap cepat; artikel baru tetap dilayani lewat
+ * `dynamicParams` lalu disimpan ke cache.
+ */
+export const dynamicParams = true;
+export async function generateStaticParams() {
+  try {
+    const { getSitemapRows } = await import('@/lib/queries');
+    const rows = (await getSitemapRows()) as { slug: string }[];
+    return rows.slice(0, 100).map((r) => ({ slug: r.slug }));
+  } catch { return []; }
+}
 type P = { params: Promise<{ slug: string }> };
 
 /** Fallback kartu berbagi; bukan bukti foto memenuhi rekomendasi Discover. */

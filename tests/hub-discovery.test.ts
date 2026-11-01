@@ -89,3 +89,28 @@ test('situs yang menolak program (403/Cloudflare) dilaporkan JUJUR, bukan "tidak
   assert.match(notes, /robots\.txt/i, 'alasannya: robots pun tak terbaca');
   assert.match(notes, /PortalContentHub/i, 'ada saran tindakan yang bisa dilakukan pemilik situs');
 });
+
+test('alamat kategori yang ditempel TIDAK diganti beranda walau beranda punya lebih banyak artikel', async () => {
+  // Bentuk kartu mengikuti fixture BeautyHaul yang sudah terbukti terbaca ekstraktor.
+  const card = (slug: string, judul: string, tanggal: string) => `
+  <div class="card">
+    <a href="https://www.beautyhaul.com/blog/${slug}">
+      <picture><source srcset="https://cdn.beautyhaul.com/assets/uploads/thumbs/${slug}.webp 1x"><img src="/blog/static/assets/placeholder/image-placeholder-square.png" alt=""></picture>
+      <h3>${judul}</h3>
+    </a>
+    <span>Film &amp; Series</span><span>${tanggal}</span>
+  </div>`;
+  const kategori = `<html><body><div class="grid">
+    ${card('rekomendasi-5-drakor-oktober', 'Rekomendasi 5 Drakor Wajib Tonton Bulan Oktober', '09 Oktober 2026')}
+    ${card('dracin-percintaan-kantor', 'Ini 4 Dracin Soal Percintaan di Kantor', '02 September 2026')}
+    ${card('drakor-rilis-agustus', '5 Drakor Terbaru Bulan Agustus', '13 Agustus 2026')}
+  </div></body></html>`;
+  const beranda = `<html><body><div class="grid">
+    ${Array.from({length: 12}, (_, i) => card(`skincare-nomor-${i}`, `Rekomendasi Skincare Nomor ${i}`, `0${(i % 9) + 1} Oktober 2026`)).join('')}
+  </div></body></html>`;
+  const fetcher = async (u: string) => (/film-series/.test(u) ? kategori : beranda);
+  const d = await discover('https://www.beautyhaul.com/blog/film-series', {fetcher});
+  assert.equal(d.method, 'listing');
+  assert.match(String(d.endpoint), /film-series/, 'endpoint harus alamat yang ditempel, bukan beranda');
+  assert.equal(d.items, 3);
+});

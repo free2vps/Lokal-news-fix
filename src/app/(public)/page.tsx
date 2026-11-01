@@ -1,4 +1,7 @@
+import Link from 'next/link';
 import { getLatest, getTrending, getMixedPage, getActiveRegions } from '@/lib/queries';
+import { slugify } from '@/lib/utils';
+import { isJobPosting } from '@/lib/quality';
 import { SITE } from '@/config/site';
 import { ADS, type AdKey } from '@/config/ads';
 import type { Article } from '@/lib/types';
@@ -25,10 +28,31 @@ export default async function Home() {
   const hubMode=process.env.CONTENT_HUB_ENABLED==='true';
   const [news, fun, trending, regions, jobs] = await Promise.all([
     getLatest({ limit: hubMode?6:9, section: 'berita' }), getLatest({ limit: hubMode?4:2, section: 'hiburan' }),
-    getTrending(), getActiveRegions(), getLatest({ limit: 1, category: 'Lowongan & CPNS' }),
+    getTrending(), getActiveRegions(), getLatest({ limit: 6, category: 'Lowongan & CPNS' }),
   ]);
   const pool: Article[] = [...news, ...fun].sort((a, b) => +new Date(b.published_at) - +new Date(a.published_at));
-  if (!pool.length) return <p className="py-20 text-center text-muted">Belum ada berita. Tambahkan sumber di /admin lalu klik “Sync sekarang”.</p>;
+  // F-03: jangan pernah menampilkan instruksi admin di halaman publik.
+  // Bila belum ada berita, tampilkan jalan yang berguna bagi pembaca: wilayah & kategori.
+  if (!pool.length) {
+    const cats = ['Info Pemda', 'Peristiwa Daerah', 'Politik', 'Ekonomi', 'Olahraga', 'Hukum & Kriminal'];
+    return (
+      <div className="py-16">
+        <h1 className="font-serif text-3xl font-semibold">Kabar Lokal</h1>
+        <p className="mt-3 max-w-prose text-muted">
+          Belum ada berita yang bisa ditampilkan saat ini. Sementara itu, jelajahi berita menurut
+          wilayah atau kategori di bawah ini.
+        </p>
+        <h2 className="mt-8 font-serif text-xl font-semibold">Menurut wilayah</h2>
+        <div className="mt-2 flex flex-wrap gap-x-4 gap-y-2 text-sm">
+          {['Bali', 'NTB', 'NTT'].map((r) => <Link key={r} href={`/wilayah/${r.toLowerCase()}`} className="text-brand hover:underline">{r}</Link>)}
+        </div>
+        <h2 className="mt-8 font-serif text-xl font-semibold">Menurut kategori</h2>
+        <div className="mt-2 flex flex-wrap gap-x-4 gap-y-2 text-sm">
+          {cats.map((c) => <Link key={c} href={`/kategori/${slugify(c)}`} className="text-brand hover:underline">{c}</Link>)}
+        </div>
+      </div>
+    );
+  }
 
   const good = (a: Article) => !!a.image_url && (!a.image_width || a.image_width >= 600); // hindari gambar buram
   const withImg = pool.filter(good);
@@ -48,7 +72,7 @@ export default async function Home() {
     <div className="space-y-6">
       <JsonLd data={{ '@context': 'https://schema.org', '@type': 'ItemList', itemListElement: pool.map((a, i) => ({ '@type': 'ListItem', position: i + 1, url: `${SITE.url}/berita/${a.slug}`, name: a.title })) }} />
 
-      <QuickCards topic={topicsOf(trending)[0]} video={video} job={jobs[0]} regions={regions} />
+      <QuickCards topic={topicsOf(trending)[0]} video={video} job={jobs.find((a) => isJobPosting(a.title))} regions={regions} />
 
       <div className={`grid gap-5 ${cols(rightTop)}`}>
         <aside className="order-2 lg:order-1"><TrendingNow items={trending} /></aside>

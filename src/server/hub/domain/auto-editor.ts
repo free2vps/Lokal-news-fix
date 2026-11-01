@@ -615,6 +615,15 @@ export async function runAutoEditor(db: Client, opts: RunOptions = {}) {
   } catch (e) {
     push('image_repair', false, `Pemeriksaan gambar artikel lama dilewati (${(e as Error).message.replace(/[^A-Z0-9_]/g, '').slice(0, 40) || 'belum siap'})`, 0);
   }
+  // 7c. Buang LOGO yang telanjur tersimpan sebagai gambar berita (mis. logo Google News).
+  //     Tanpa langkah ini, logo tetap tampil walau penjagaan baru sudah terpasang.
+  try {
+    const {reclaimLogoImages} = await import('./article-image');
+    const fix = await reclaimLogoImages(db, {limit: 8});
+    if (fix.checked > 0) push('image_logo', true, `Gambar berupa logo: ${fix.repaired} diganti foto asli, ${fix.cleared} dikosongkan`, fix.repaired + fix.cleared);
+  } catch (e) {
+    push('image_logo', false, `Pembersihan gambar logo dilewati (${(e as Error).message.replace(/[^A-Z0-9_]/g, '').slice(0, 40) || 'belum siap'})`, 0);
+  }
 
   // 8. Antrean media sosial: artikel yang baru terbit langsung bisa ditarik Make
   //    dengan pemicu yang sama (maks 4 per tarikan di sisi antrean).

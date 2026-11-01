@@ -1,3 +1,4 @@
+import { isJobPosting } from './quality';
 export const NEWS_CATEGORIES = ['Info Pemda', 'Peristiwa Daerah', 'Lowongan & CPNS', 'Event & Kebijakan Lokal', 'Politik', 'Ekonomi', 'Hukum & Kriminal', 'Pendidikan', 'Kesehatan', 'Olahraga', 'Lingkungan', 'Teknologi', 'Sosial & Budaya', 'Umum'];
 
 export const FUN_CATEGORIES = ['Selebriti', 'Film & Musik', 'Gaya Hidup', 'Viral & Trending', 'Kuliner & Wisata'];
@@ -16,7 +17,10 @@ export function refineCategory(text: string, aiCategory: string, region: string 
   const jobs=LOCAL_RULES[0][1].test(text);
   if(!jobs&&/\b(bank|bpr|perbankan|pembiayaan|pinjaman|kredit|umkm|keuangan)\b/i.test(text))return 'Ekonomi';
   const hit = LOCAL_RULES.find(([, re]) => re.test(text));
-  if (hit && (region || hit[0] === 'Lowongan & CPNS')) return hit[0];
+  // B3: rubrik "Lowongan & CPNS" hanya untuk teks yang benar-benar mengumumkan lowongan.
+  // "Bupati Dompu … layanan PPPK dan UMKM" memuat PPPK tetapi bukan lowongan.
+  if (hit && hit[0] === 'Lowongan & CPNS') return isJobPosting(text) ? hit[0] : (aiCategory === 'Lowongan & CPNS' ? 'Info Pemda' : aiCategory);
+  if (hit && region) return hit[0];
   return aiCategory;
 }
 

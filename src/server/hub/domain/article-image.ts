@@ -30,6 +30,28 @@ const NOT_ARTICLE_IMAGE = /(?:logo|favicon|sprite|icon[-_/]|avatar|placeholder|s
  */
 const SITE_DEFAULT_IMAGE = /(?:og[-_]?default|default[-_]?(?:og|image|share)|share[-_]?image[-_]?default|social[-_]?default)/i;
 
+/**
+ * Host yang isinya logo/ikon, bukan foto berita.
+ *
+ * Gejala nyata (1 Nov 2026): berita yang berasal dari Google News tampil dengan LOGO Google News
+ * 300×300 (`lh3.googleusercontent.com/…`). Alamat itu tidak memuat kata "logo", jadi pola nama di
+ * bawah tidak menangkapnya. Karena itu host-nya diblokir langsung.
+ */
+const LOGO_HOSTS = [
+  'googleusercontent.com', 'gstatic.com', 'google.com', 'news.google.com', 'schema.org',
+];
+/** true bila alamat ini hampir pasti logo/ikon situs, bukan foto berita. */
+export function isLogoImage(url: string): boolean {
+  try {
+    const u = new URL(url);
+    const host = u.hostname.toLowerCase();
+    const path = (u.pathname + u.search).toLowerCase();
+    if (LOGO_HOSTS.some(h => host === h || host.endsWith('.' + h))) return true;
+    // nama berkas/kelas yang menandakan logo
+    return /(?:^|[/_-])(?:logo|favicon|brandmark|site-?icon)(?:[/_.-]|$)/.test(path);
+  } catch { return false; }
+}
+
 function absolute(raw: string | undefined | null, base: string): string | null {
   if (typeof raw !== 'string') return null;
   const value = raw.trim().replace(/&amp;/g, '&');
@@ -64,7 +86,8 @@ export function imageFromHtml(html: string, baseUrl: string, opts: {title?: stri
   for (const selector of metaSelectors) {
     const el = $(selector).first();
     const found = absolute(el.attr('content') ?? el.attr('href'), baseUrl);
-    if (!found || NOT_ARTICLE_IMAGE.test(found)) continue;
+    // Logo situs (mis. logo Google News) bukan foto berita — lewati, jangan dipakai.
+    if (!found || NOT_ARTICLE_IMAGE.test(found) || isLogoImage(found)) continue;
     // Gambar bawaan situs bukan foto berita → jangan dipakai; badan artikel dicari di bawah.
     if (SITE_DEFAULT_IMAGE.test(found)) break;
     return found;
@@ -75,6 +98,7 @@ export function imageFromHtml(html: string, baseUrl: string, opts: {title?: stri
     for (const node of $(scope).toArray()) {
       const el = $(node);
       const src = absolute(el.attr('src') ?? el.attr('data-src') ?? el.attr('data-lazy-src'), baseUrl);
+      if (src && isLogoImage(src)) continue;
       if (!src || NOT_ARTICLE_IMAGE.test(src) || SITE_DEFAULT_IMAGE.test(src)) continue;
       const width = Number(el.attr('width'));
       if (Number.isFinite(width) && width > 0 && width < 200) continue; // ikon kecil
@@ -131,4 +155,50 @@ export async function pickImageFromPage(pageUrl: string, fetcher?: (url: string)
   } catch {
     return null;
   }
+}
+
+/**
+ * Ganti gambar yang telanjur tersimpan sebagai LOGO dengan foto asli dari halaman artikel.
+ *
+ * Gejala nyata: berita dari Google News terbit dengan logo Google News 300×300. Penjagaan
+ * `isLogoImage` mencegahnya terulang, tetapi baris lama di database tetap menyimpan logo itu.
+ * Fungsi ini membersihkannya: logo dibuang, foto asli diambil ulang, dan bila tidak ada foto
+ * asli, kolomnya dikosongkan supaya portal menampilkan gambar netral — bukan logo Google.
+ */
+export async function reclaimLogoImages(
+  db: Client,
+  opts: {limit?: number; fetcher?: (url: string) => Promise<string>; now?: number} = {},
+): Promise<{checked: number; cleared: number; repaired: number}> {
+  const out = {checked: 0, cleared: 0, repaired: 0};
+  const limit = Math.max(1, Math.min(40, opts.limit ?? 12));
+  let rows: {id: unknown; original_url: unknown; source_image_url: unknown}[] = [];
+  try {
+    rows = (await db.execute({
+      sql: `SELECT id,original_url,source_image_url FROM hub_items
+            WHERE source_image_url IS NOT NULL AND source_image_url<>''
+              AND (source_image_url LIKE '%googleusercontent.com%' OR source_image_url LIKE '%gstatic.com%'
+                   OR source_image_url LIKE '%news.google.com%' OR lower(source_image_url) LIKE '%logo%')
+            ORDER BY julianday(source_published_at) DESC LIMIT ?`,
+      args: [limit],
+    })).rows as unknown as typeof rows;
+  } catch { return out; }
+  out.checked = rows.length;
+  for (const row of rows) {
+    const current = String(row.source_image_url || '');
+    if (!isLogoImage(current)) continue; // sudah bukan logo — biarkan
+    const pageUrl = String(row.original_url || '');
+    let replacement: string | null = null;
+    if (/^https:\/\//i.test(pageUrl)) {
+      replacement = await pickImageFromPage(pageUrl, opts.fetcher).catch(() => null);
+      if (replacement && isLogoImage(replacement)) replacement = null;
+    }
+    if (replacement) {
+      await db.execute({sql: 'UPDATE hub_items SET source_image_url=? WHERE id=?', args: [replacement, String(row.id)]});
+      out.repaired++;
+    } else {
+      await db.execute({sql: "UPDATE hub_items SET source_image_url=NULL WHERE id=?", args: [String(row.id)]});
+      out.cleared++;
+    }
+  }
+  return out;
 }

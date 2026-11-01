@@ -3,6 +3,7 @@ import { SITE } from '@/config/site';
 import { REGIONS } from '@/config/regions';
 import { getSitemapRows } from '@/lib/queries';
 import { ALL_CATEGORIES, slugify } from '@/lib/utils';
+import { isMeaningfulTag } from '@/lib/quality';
 
 export const revalidate = 300; // dibangun ulang tiap 5 menit
 
@@ -11,7 +12,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const now = Date.now();
   const regionsWithNews = new Set(rows.map((r) => r.region).filter(Boolean));
   const tagCount = new Map<string, number>();
-  for (const r of rows) for (const t of r.tags ?? []) tagCount.set(t, (tagCount.get(t) || 0) + 1);
+  for (const r of rows) for (const t of r.tags ?? []) if (isMeaningfulTag(t)) tagCount.set(t, (tagCount.get(t) || 0) + 1);
   const topTags = [...tagCount].filter(([, n]) => n >= 3).sort((a, b) => b[1] - a[1]).slice(0, 200);
 
   return [

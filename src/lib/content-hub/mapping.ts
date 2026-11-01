@@ -3,6 +3,7 @@ import { createHash } from 'crypto';
 import { detectRegion } from '@/config/regions';
 import { slugify, refineCategory, NEWS_CATEGORIES, FUN_CATEGORIES } from '../utils';
 import type { Trend } from '../types';
+import { isSiteNameTitle, meaningfulTags } from '@/lib/quality';
 
 type RecordValue = Record<string, unknown>;
 export function object(value: unknown): RecordValue | null {
@@ -34,8 +35,15 @@ export function mapHubArticle(value: unknown, now = Date.now()) {
   const url = safeUrl(item.original_url);
   const date = Date.parse(text(item.published_at));
   if (!url || !Number.isFinite(date) || date > now + 300000 || now - date > 72 * 3600000) return null;
-  const title = text(item.title).slice(0, 500);
   const summary = text(item.summary).slice(0, 1000);
+  // B1: judul berupa nama situs ("… - Komdigi") bukan judul berita. Coba original_title dulu;
+  // bila keduanya buruk, artikel DIBUANG daripada terbit tanpa judul bermakna.
+  const rawTitle = text(item.title).slice(0, 500);
+  const rawOriginal = text(item.original_title).slice(0, 500);
+  const sourceName = text(item.source_name).slice(0, 200);
+  const title = !isSiteNameTitle(rawTitle, sourceName) ? rawTitle
+    : !isSiteNameTitle(rawOriginal, sourceName) ? rawOriginal : '';
+  if (!title) return null;
   const full = `${title} ${summary}`;
   const region = detectRegion(full);
   const section = item.contentGroup === 'entertainment' ? 'hiburan' : 'berita';
@@ -43,7 +51,7 @@ export function mapHubArticle(value: unknown, now = Date.now()) {
     slug: `${slugify(title).slice(0,70)}-hub-${createHash('sha256').update(url).digest('hex').slice(0,12)}`,
     source_url:url,source_name:text(item.source_name).slice(0,200)||'Penerbit sumber', original_title:text(item.original_title)||title,title,
     // Legacy database column name, not a claim of AI authorship.
-    ai_summary:summary,category:category(text(item.editorial_category),section,full,region),section,region,tags:keywords(item.keywords),
+    ai_summary:summary,category:category(text(item.editorial_category),section,full,region),section,region,tags:meaningfulTags(keywords(item.keywords)),
     image_url:safeUrl(item.image_url),image_credit:text(item.image_credit)||null,published_at:new Date(date).toISOString(),
     ...sourceSeo(title,summary),
     ...(((item.seo_method==='mistral_ntb'&&object(item.enrichment)?.provider==='mistral')||(item.seo_method==='openrouter_ntb'&&object(item.enrichment)?.provider==='openrouter')||(item.seo_method==='groq_ntb'&&object(item.enrichment)?.provider==='groq')||(item.summary_method==='mistral_ntb'&&object(item.enrichment)?.provider==='mistral'))?{
@@ -51,7 +59,7 @@ export function mapHubArticle(value: unknown, now = Date.now()) {
       meta_description:text(item.meta_description).slice(0,160)||sourceSeo(title,summary).meta_description,
       key_points:Array.isArray(item.key_points)?array(item.key_points).filter((v):v is string=>typeof v==='string').slice(0,4).map(v=>v.slice(0,220)):sourceSeo(title,summary).key_points,
       section_headings:Array.isArray(item.section_headings)?array(item.section_headings).filter((v):v is string=>typeof v==='string').slice(0,2).map(v=>v.slice(0,80)):sourceSeo(title,summary).section_headings,
-      tags:array(item.tags).filter((v):v is string=>typeof v==='string').slice(0,5).map(v=>v.slice(0,80)),
+      tags:meaningfulTags(array(item.tags)).slice(0,5).map(v=>v.slice(0,80)),
     }:{ }),
   };
 }

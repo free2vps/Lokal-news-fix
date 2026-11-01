@@ -51,6 +51,27 @@ export function supabaseDeliver(fetcher: typeof fetch = fetch, env: NodeJS.Proce
     const rows = items.map(i => ({item: i, row: articleRow(i.snapshot)})).filter(x => x.row);
     const skipped = items.filter(i => !articleRow(i.snapshot)).map(i => i.id);
     const result: DeliveryResult = {published: [], duplicates: [], failed: skipped.map(id => ({id, code: 'ARTICLE_ROW_INVALID'})), target: 'supabase_articles'};
+/**
+ * Beri tahu situs bahwa artikel baru sudah masuk, supaya cache halaman dibuang.
+ *
+ * Halaman publik di-cache (ISR). Tanpa pemberitahuan, berita baru bisa tertahan sampai masa
+ * cache habis. Pemanggilan ini SENGAJA tidak boleh menggagalkan pengiriman: kalau alamat
+ * revalidate belum diatur atau situs belum siap, cukup dilewati — data tetap terkirim.
+ */
+async function notifyRevalidate(fetcher: typeof fetch, env: NodeJS.ProcessEnv): Promise<void> {
+  const url = String(env.HUB_REVALIDATE_URL ?? '').trim();
+  const secret = String(env.HUB_REVALIDATE_SECRET ?? '').trim();
+  if (!url || !secret) return;
+  try {
+    await fetcher(url, {
+      method: 'POST',
+      redirect: 'error',
+      signal: AbortSignal.timeout(8000),
+      headers: { 'x-revalidate-secret': secret },
+    });
+  } catch { /* cache akan kedaluwarsa sendiri; ini hanya mempercepat */ }
+}
+
     if (rows.length) {
       const r = await fetcher(new URL('/rest/v1/articles?on_conflict=source_url&select=id,source_url', origin).href, {
         method: 'POST', redirect: 'error', signal: AbortSignal.timeout(15000),
@@ -72,6 +93,7 @@ export function supabaseDeliver(fetcher: typeof fetch = fetch, env: NodeJS.Proce
         else result.duplicates.push(x.item.id);
       }
     }
+    if (result.published.length) await notifyRevalidate(fetcher, env);
     return result;
   };
 }

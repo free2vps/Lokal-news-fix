@@ -1,11 +1,16 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { getLatest } from '@/lib/queries';
-import { categoryFromSlug } from '@/lib/utils';
+import { categoryFromSlug, slugify, ALL_CATEGORIES } from '@/lib/utils';
 import NewsCard from '@/components/NewsCard';
 import LoadMore from '@/components/LoadMore';
 
 export const revalidate = 300;
+export const dynamicParams = false;
+/** Semua kategori diketahui dari konfigurasi — jadi bisa dirender statis sejak build. */
+export function generateStaticParams() {
+  return ALL_CATEGORIES.map((c) => ({ slug: slugify(c) }));
+}
 type P = { params: Promise<{ slug: string }> };
 
 export async function generateMetadata({ params }: P): Promise<Metadata> {

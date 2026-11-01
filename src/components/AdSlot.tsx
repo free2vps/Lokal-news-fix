@@ -30,7 +30,10 @@ export default function AdSlot({ slot, className = '' }: { slot: AdKey; classNam
   return (
     <div className={box} style={style} aria-label="Iklan">
       <iframe title="Iklan" srcDoc={doc} loading="lazy" scrolling="no" className="w-full border-0" style={{ height: cfg.minHeight }}
-        sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox allow-same-origin" />
+        // F-02: `allow-same-origin` + `allow-scripts` membuat iframe dapat MENGHAPUS atribut sandbox —
+          // sandbox jadi tidak berguna. `allow-popups-to-escape-sandbox` juga membiarkan popup iklan
+          // keluar tanpa sandbox. Keduanya dibuang.
+          sandbox="allow-scripts allow-popups" />
     </div>
   );
 }

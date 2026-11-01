@@ -67,7 +67,15 @@ function blockedNote(error: unknown): string | null {
   return null;
 }
 
-/** Coba beberapa alamat sebagai halaman daftar artikel; kembalikan yang paling banyak artikelnya. */
+/**
+ * Coba beberapa alamat sebagai halaman daftar artikel.
+ *
+ * Alamat yang DITEMPEL pemilik selalu didahulukan. Dulu yang dipilih adalah yang paling banyak
+ * artikelnya, sehingga menempelkan satu kategori (mis. /blog/film-series, 12 artikel) justru
+ * diam-diam diganti beranda (43 artikel campur kecantikan). Sekarang: pakai alamat yang ditempel
+ * bila ia memuat artikel; beranda hanya dipakai sebagai cadangan bila alamat itu tidak bisa dibaca
+ * sebagai daftar (mis. halaman satu artikel).
+ */
 async function probeListing(load: Fetch, targets: string[]): Promise<Discovery | null> {
   let best: Discovery | null = null;
   for (const target of targets) {
@@ -81,7 +89,8 @@ async function probeListing(load: Fetch, targets: string[]): Promise<Discovery |
         sample: items.slice(0, 3).map(i => i.title), stale: items.every(i => !i.publishedAt),
         notes: [`halaman daftar memuat ${items.length} artikel`],
       };
-      if (!best || candidate.items > best.items) best = candidate;
+      // Alamat tempelan menang apa pun jumlah artikelnya; beranda hanya cadangan.
+      if (!best) { best = candidate; break; }
     } catch { /* lanjut ke alamat berikutnya */ }
   }
   return best;
