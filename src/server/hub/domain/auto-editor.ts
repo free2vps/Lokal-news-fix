@@ -10,6 +10,7 @@ import {enqueuePublished, socialReady} from './social-pull';
 import {sourceTime} from './editorial';
 import {detectRegion} from '@/config/regions';
 import {topicOf} from './topic';
+import {prepareCore, schemaReport} from './schema-core';
 
 /**
  * Tahap 10 — Redaktur Otomatis.
@@ -308,6 +309,13 @@ type Candidate = {
   imageUrl: string | null;
 };
 
+/** Pesan galat yang masih bisa dibaca manusia (spasi & tanda baca dipertahankan). */
+function readable(e: unknown, max = 220) {
+  const raw = e instanceof Error ? e.message : String(e ?? '');
+  const clean = raw.replace(/\s+/g, ' ').trim().slice(0, max);
+  return clean || 'TANPA_KETERANGAN';
+}
+
 export type PullSource = {id: string; name: string; ok: boolean; inserted: number; error?: string; processed?: number; skipped?: number; invalid?: number; cooled?: boolean};
 export type StepResult = {step: string; ok: boolean; detail: string; count?: number; sources?: PullSource[]};
 export type RunOptions = {
@@ -316,6 +324,8 @@ export type RunOptions = {
 };
 
 export async function runAutoEditor(db: Client, opts: RunOptions = {}) {
+  // Pastikan bentuk database benar SEBELUM menulis apa pun (menggantikan tambalan ALTER berserakan).
+  try { await prepareCore(db); } catch { /* alur tetap jalan; galat nyata muncul di langkahnya */ }
   const started = Date.now();
   const now = opts.now ?? started;
   const steps: StepResult[] = [];
@@ -567,7 +577,7 @@ export async function runAutoEditor(db: Client, opts: RunOptions = {}) {
       const withImage = claimed.filter(c => sent.has(c.id) && c.imageUrl && c.rights === 'permission_confirmed').length;
       push('publish', failed.length === 0, `${published} terbit, ${duplicates} sudah ada, ${failed.length} gagal${published ? ` · ${withImage} membawa gambar` : ''}${retried ? ` (${retried} percobaan ulang dari putaran sebelumnya)` : ''}`, published);
     } catch (e) {
-      const code = (e instanceof Error ? e.message : '').replace(/[^A-Z0-9_]/g, '').slice(0, 50) || 'PUBLISH_FAILED';
+      const code = readable(e) || 'PUBLISH_FAILED';
       for (const c of claimed) await db.execute({sql: "UPDATE hub_publish_outbox SET status='failed' WHERE item_id=? AND status='sending'", args: [c.id]});
       push('publish', false, `Pengiriman gagal: ${code} — 0 artikel terbit`, 0);
     }
@@ -613,7 +623,10 @@ export async function runAutoEditor(db: Client, opts: RunOptions = {}) {
       push('trends', true, out.total ? `${out.x} tren X + ${out.youtube} video dikirim ke beranda` : 'Belum ada snapshot tren untuk dikirim', out.total);
     }
   } catch (e) {
-    push('trends', false, `Tren gagal dikirim (${(e as Error).message.replace(/[^A-Z0-9_]/g, '').slice(0, 40)})`, 0);
+    // JANGAN membuang huruf/isi pesan: sebelumnya `.replace(/[^A-Z0-9_]/g,'')` mengubah
+    // "TRENDS_HTTP_400 — cannot insert…" menjadi deretan kode tanpa arti, sehingga sebabnya
+    // hilang dan perbaikan menebak-nebak selama berhari-hari.
+    push('trends', false, `Tren gagal dikirim (${readable(e)})`, 0);
   }
 
   const duration = Date.now() - started;
@@ -623,6 +636,17 @@ export async function runAutoEditor(db: Client, opts: RunOptions = {}) {
     await db.execute({sql: 'INSERT INTO hub_auto_editor_runs_v2(id,trigger,status,steps_json,pulled,selected,published,duration_ms,created_at) VALUES(?,?,?,?,?,?,?,?,?)',
       args: [randomUUID(), String(opts.trigger || 'manual').slice(0, 40), status, JSON.stringify(steps), pulled, picked.length, published, duration, new Date(now).toISOString()]});
   } catch { storeError = 'RUN_LOG_UNAVAILABLE'; }
+
+  // 10. Segarkan beranda portal. Halaman publik memakai ISR 5 menit; tanpa ini artikel baru
+  //     baru terlihat setelah jendela itu lewat, sehingga perubahan terasa "tidak terjadi".
+  //     Berhasil/gagal tidak memengaruhi hasil putaran.
+  if (published || steps.some(s => s.step === 'image_repair' && (s.count || 0) > 0) || steps.some(s => s.step === 'trends' && s.ok)) {
+    try {
+      const {revalidatePath} = await import('next/cache');
+      revalidatePath('/', 'layout');
+      push('revalidate', true, 'Beranda portal disegarkan agar perubahan langsung terlihat', 1);
+    } catch { /* di luar Next (mis. tes) tidak ada cache yang perlu disegarkan */ }
+  }
 
   return {
     status, runAt: new Date(now).toISOString(), durationMs: duration, steps,
@@ -635,7 +659,7 @@ export async function runAutoEditor(db: Client, opts: RunOptions = {}) {
 }
 
 export async function autoEditorStatus(db: Client) {
-  const empty = {ready: false, config: {...DEFAULT_AUTO_CONFIG}, runs: [], policy: AUTO_EDITOR_POLICY, sources: {total: 0, permissionConfirmed: 0, metadataOnly: 0, unknown: 0}, publishedToday: 0, tierLabels: TIER_LABEL, selectionRules: SELECTION_RULES};
+  const empty = {ready: false, config: {...DEFAULT_AUTO_CONFIG}, runs: [], lastScheduled: null as {at: string; status: string; published: number} | null, policy: AUTO_EDITOR_POLICY, sources: {total: 0, permissionConfirmed: 0, metadataOnly: 0, unknown: 0}, publishedToday: 0, tierLabels: TIER_LABEL, selectionRules: SELECTION_RULES, schema: {tables: 0, columns: 0, missing: [] as string[], checkedAt: ''}};
   if (!(await autoEditorReady(db))) return empty;
   const config = await readAutoConfig(db);
   const runs = (await db.execute('SELECT trigger,status,pulled,selected,published,duration_ms,created_at,steps_json FROM hub_auto_editor_runs_v2 ORDER BY created_at DESC LIMIT 8')).rows.map(r => ({
@@ -663,5 +687,7 @@ export async function autoEditorStatus(db: Client) {
   const dayStart = new Date(); dayStart.setUTCHours(0, 0, 0, 0);
   let publishedToday = 0;
   try { publishedToday = Number((await db.execute({sql: "SELECT count(*) n FROM hub_publish_outbox WHERE status='published' AND created_at>=?", args: [dayStart.toISOString()]})).rows[0].n); } catch {}
-  return {ready: true, config, runs, lastScheduled, policy: AUTO_EDITOR_POLICY, sources, publishedToday, tierLabels: TIER_LABEL, selectionRules: SELECTION_RULES};
+  // Bentuk database yang sebenarnya — pengganti "jalankan SQL di Turso".
+  const schema = await schemaReport(db).catch(() => ({tables: 0, columns: 0, missing: [] as string[], checkedAt: ''}));
+  return {ready: true, config, runs, lastScheduled, policy: AUTO_EDITOR_POLICY, sources, publishedToday, tierLabels: TIER_LABEL, selectionRules: SELECTION_RULES, schema};
 }

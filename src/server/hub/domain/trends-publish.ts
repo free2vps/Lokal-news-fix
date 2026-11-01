@@ -26,7 +26,9 @@ export type TrendsPublishResult = {x: number; youtube: number; total: number; ta
 
 const X_PLATFORM = 'x_t24';
 const YT_PLATFORM = 'yt_feed';
-const TREND_SOURCE = 'hub';
+// Kolom `trending.source` di portal punya aturan: HANYA 'auto' atau 'manual'.
+// Nilai lain ditolak 400. Penulis tren milik portal sendiri juga memakai 'auto', jadi kita ikut.
+const TREND_SOURCE = 'auto';
 
 /** Pesan galat pendek yang bisa dibaca pengguna; isi badan respons ikut dibawa agar sebabnya jelas. */
 function httpCode(status: number, body: string) {
@@ -102,22 +104,25 @@ export async function publishTrends(
     if (Array.isArray(parsed)) inserted = parsed;
   } catch { inserted = []; }
 
-  // 2. Buang baris Hub yang lama (id tidak termasuk yang baru masuk). Bila server tidak
-  //    mengembalikan id, baris lama dibiarkan: duplikat lebih ringan daripada data hilang,
-  //    dan `expires_at` tetap menghapusnya dari beranda.
+  // 2. Buang baris lama HANYA pada platform yang baru saja kita tulis, dan hanya yang bukan
+  //    bagian dari kiriman ini. Ini pola yang sama dengan penulis tren milik portal
+  //    (`delete where source='auto' and platform=…`), jadi baris Google/manual tidak tersentuh.
   let removed = 0;
   const ids = inserted.map(i => String(i.id)).filter(id => /^\d+$/.test(id));
   if (ids.length) {
-    const q = `/rest/v1/trending?source=eq.${TREND_SOURCE}&id=not.in.(${ids.join(',')})`;
-    try {
-      const d = await fetcher(new URL(q, origin).href, {
-        method: 'DELETE', redirect: 'error', signal: AbortSignal.timeout(15000),
-        headers: {...base, Prefer: 'return=representation'},
-      });
-      if (d.ok) {
-        try { const gone = JSON.parse(await d.text()) as unknown[]; removed = Array.isArray(gone) ? gone.length : 0; } catch { removed = 0; }
-      } else await d.body?.cancel().catch(() => {});
-    } catch { /* pembersihan opsional; tren baru sudah masuk */ }
+    for (const platform of [X_PLATFORM, YT_PLATFORM]) {
+      if (!rows.some(row => row.platform === platform)) continue;
+      const q = `/rest/v1/trending?source=eq.${TREND_SOURCE}&platform=eq.${platform}&id=not.in.(${ids.join(',')})`;
+      try {
+        const d = await fetcher(new URL(q, origin).href, {
+          method: 'DELETE', redirect: 'error', signal: AbortSignal.timeout(15000),
+          headers: {...base, Prefer: 'return=representation'},
+        });
+        if (d.ok) {
+          try { const gone = JSON.parse(await d.text()) as unknown[]; if (Array.isArray(gone)) removed += gone.length; } catch { /* hitungan saja */ }
+        } else await d.body?.cancel().catch(() => {});
+      } catch { /* pembersihan opsional; tren baru sudah masuk */ }
+    }
   }
 
   return {

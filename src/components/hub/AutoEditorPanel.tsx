@@ -19,6 +19,7 @@ type Status={
   config:{enabled:boolean;maxPerRun:number;maxPerDay:number;windowHours:number;minTier?:string;regions:string[];aiPerRun:number;mixRegionalPct?:number};
   selectionRules?:{key:string;label:string}[];
   lastScheduled?:{at:string;status:string;published:number}|null;
+  schema?:{tables:number;columns:number;missing:string[];checkedAt:string};
   runs:Run[];sources:{total:number;permissionConfirmed:number;metadataOnly:number;unknown:number};publishedToday:number;
   policy:{hardMaxPerRun:number;hardMaxPerDay:number};
 };
@@ -98,6 +99,9 @@ export default function AutoEditorPanel(){
       <p className="tiny"><b>Putaran terjadwal terakhir:</b> {st?.lastScheduled
         ? `${new Date(st.lastScheduled.at).toLocaleString('id-ID',{dateStyle:'medium',timeStyle:'short',timeZone:'Asia/Makassar'})} WITA · ${st.lastScheduled.status} · ${st.lastScheduled.published} terbit`
         : 'belum pernah — penjadwal GitHub Actions belum memanggil Hub'}</p>
+      <p className="tiny"><b>Bentuk database:</b> {st?.schema && st.schema.tables
+        ? `${st.schema.tables} tabel · ${st.schema.columns} kolom · ${st.schema.missing.length ? 'perlu ditambah: ' + st.schema.missing.join(', ') : 'sesuai'}`
+        : 'sedang diperiksa'}</p>
     </div>
 
     {result&&<div className="notice">

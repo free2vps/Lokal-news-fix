@@ -71,7 +71,9 @@ test('tren Hub diubah menjadi baris tabel trending portal', async () => {
   // Portal memberi `trending.id` nilai sendiri (GENERATED ALWAYS AS IDENTITY), jadi kitа TIDAK
   // boleh mengirim id: itulah penyebab TRENDS_HTTP_400 sebelumnya.
   assert.equal('id' in x[0], false, 'id tidak boleh dikirim ke portal');
-  assert.equal(x[0].source, 'hub');
+  // Kolom trending.source di portal hanya menerima 'auto' atau 'manual' (CHECK constraint).
+  // Nilai lain — termasuk 'hub' yang sempat dipakai r16 — ditolak dengan HTTP 400.
+  assert.equal(x[0].source, 'auto');
   assert.ok(x[0].expires_at > new Date(Date.parse(now)).toISOString());
   const yt = rows.filter(r => r.platform === 'yt_feed');
   assert.equal(yt.length, 1);
@@ -100,10 +102,14 @@ test('tren dikirim tanpa id, lalu baris lama dibersihkan memakai id dari server'
   assert.equal(post.key, 'site-key');
   assert.equal(post.body.length, 3);
   assert.ok(post.body.every(r => !('id' in r)), 'tidak ada id dalam payload');
-  const del = seen.find(s => s.method === 'DELETE')!;
-  assert.match(del.url, /source=eq\.hub/);
-  assert.match(del.url, /id=not\.in\.\(900,901,902\)/);
-  assert.equal(out.removed, 2);
+  const dels = seen.filter(s => s.method === 'DELETE');
+  assert.equal(dels.length, 2, 'pembersihan hanya untuk platform yang benar-benar ditulis');
+  assert.ok(dels.every(d => /source=eq\.auto/.test(d.url)), 'memakai nilai yang diizinkan skema');
+  assert.ok(dels.every(d => /id=not\.in\.\(900,901,902\)/.test(d.url)));
+  assert.ok(dels.some(d => /platform=eq\.x_t24/.test(d.url)));
+  assert.ok(dels.some(d => /platform=eq\.yt_feed/.test(d.url)));
+  assert.ok(dels.every(d => !/platform=eq\.google/.test(d.url)), 'baris Google tidak boleh tersentuh');
+  assert.equal(out.removed, 4);
   await db.close();
 });
 
@@ -154,5 +160,31 @@ test('gambar untuk berita lama diisi saat feed kembali memuat item yang sama', a
   const row = (await db.execute("SELECT source_image_url,version FROM hub_items WHERE id='old'")).rows[0];
   assert.equal(String(row.source_image_url), 'https://cdn.a.test/lama.jpg');
   assert.equal(Number(row.version), 1, 'versi tidak berubah, edit manual tetap aman');
+  await db.close();
+});
+
+test('PENJAGA SKEMA: nilai platform/kind/source tren sesuai aturan portal', async () => {
+  // Aturan ini dibaca langsung dari database portal (pg_constraint):
+  //   platform ∈ google,x,youtube,tiktok,instagram,facebook,threads,x_t24,yt_t24,yt_feed
+  //   kind     ∈ topic,post,video
+  //   source   ∈ auto,manual
+  // Tes ini mencegah nilai baru (mis. source='hub') masuk lagi dan memicu 400 di produksi.
+  const ALLOWED = {
+    platform: ['google', 'x', 'youtube', 'tiktok', 'instagram', 'facebook', 'threads', 'x_t24', 'yt_t24', 'yt_feed'],
+    kind: ['topic', 'post', 'video'],
+    source: ['auto', 'manual'],
+  };
+  const {db, now} = await trendsFixture();
+  const rows = await collectTrendRows(db, undefined, Date.parse(now));
+  assert.ok(rows.length > 0);
+  for (const row of rows) {
+    assert.ok(ALLOWED.platform.includes(row.platform), 'platform tidak dikenal: ' + row.platform);
+    assert.ok(ALLOWED.kind.includes(row.kind), 'kind tidak dikenal: ' + row.kind);
+    assert.ok(ALLOWED.source.includes(row.source), 'source tidak dikenal: ' + row.source);
+    assert.equal('id' in row, false, 'id diisi otomatis oleh portal');
+    for (const col of ['title', 'rank', 'platform', 'kind', 'source']) {
+      assert.notEqual(row[col as keyof typeof row], undefined, 'kolom wajib kosong: ' + col);
+    }
+  }
   await db.close();
 });

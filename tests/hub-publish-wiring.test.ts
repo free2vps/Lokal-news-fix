@@ -183,8 +183,8 @@ test('REGRESI: artikel lama tanpa gambar dilengkapi tanpa tombol baru', async ()
   globalThis.fetch = (async (input: any, init?: any) => {
     const url = String(input);
     const method = String(init?.method || 'GET');
-    if (method === 'GET' && url.includes('image_url=is.null')) {
-      return new Response(JSON.stringify([{id: '42', source_url: 'https://a.test/1'}]), {status: 200});
+    if (method === 'GET' && url.includes('source_url=in.')) {
+      return new Response(JSON.stringify([{id: '42', source_url: 'https://a.test/1', image_url: null, source_name: 'Penerbit sumber'}]), {status: 200});
     }
     if (method === 'PATCH') { patched.push(String(init?.body || '')); return new Response(null, {status: 204}); }
     if (url.includes('on_conflict')) {
@@ -205,5 +205,36 @@ test('REGRESI: artikel lama tanpa gambar dilengkapi tanpa tombol baru', async ()
     assert.match(String(repair!.detail), /1 dari 1 dilengkapi/);
     assert.equal(patched.length, 1);
     assert.equal((JSON.parse(patched[0]) as {image_url: string}).image_url, 'https://cdn.a.test/foto.jpg');
+  } finally { globalThis.fetch = originalFetch; await db.close(); restore(); }
+});
+
+test('REGRESI: gambar yang baru masuk ke Hub ikut merapikan artikel yang terbit lebih dulu', async () => {
+  const restore = withEnv({NEXT_PUBLIC_SUPABASE_URL: 'https://site.supabase.co', SUPABASE_SERVICE_ROLE_KEY: 'site-key'});
+  const originalFetch = globalThis.fetch;
+  const patched: any[] = [];
+  globalThis.fetch = (async (input: any, init?: any) => {
+    const url = String(input);
+    const method = String(init?.method || 'GET');
+    if (method === 'GET' && url.includes('source_url=in.')) {
+      return new Response(JSON.stringify([{id: '77', source_url: 'https://a.test/1', image_url: null, source_name: 'media-ntb'}]), {status: 200});
+    }
+    if (method === 'PATCH') { patched.push(JSON.parse(String(init?.body || '{}'))); return new Response(null, {status: 204}); }
+    if (url.includes('on_conflict')) {
+      const rows = JSON.parse(String(init?.body || '[]')) as {source_url: string}[];
+      return new Response(JSON.stringify(rows.map((r, i) => ({id: 'n' + i, source_url: r.source_url}))), {status: 201});
+    }
+    return new Response('[]', {status: 200});
+  }) as typeof fetch;
+  const {db} = await fixture();
+  try {
+    // Terbit dulu TANPA gambar (meniru r13–r15).
+    await runAutoEditor(db, {now: NOW, skipPull: true});
+    // Gambar baru terisi belakangan di Hub (isian mundur r14).
+    await db.execute({sql: "UPDATE hub_items SET source_image_url='https://cdn.a.test/baru.jpg' WHERE id='i1'", args: []});
+    patched.length = 0;
+    await runAutoEditor(db, {now: NOW + 6000, skipPull: true});
+    assert.equal(patched.length, 1);
+    assert.equal(patched[0].image_url, 'https://cdn.a.test/baru.jpg');
+    assert.equal(patched[0].source_name, 'media-ntb');
   } finally { globalThis.fetch = originalFetch; await db.close(); restore(); }
 });

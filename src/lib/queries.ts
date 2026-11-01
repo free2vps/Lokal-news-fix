@@ -71,16 +71,17 @@ export async function getSitemapRows() {
 
 import type { Trend } from './types';
 export async function getTrending(): Promise<Trend[]> {
-  // Snapshot Hub (X + YouTube) dipakai lebih dulu apa pun status flag-nya, supaya panel X/Video
-  // tidak kosong hanya karena env tidak menyala. Baris `trending` yang masih berlaku tetap
-  // ditambahkan (mis. topik Google untuk teks berjalan) dan duplikat dibuang.
+  // Sumber utama: tabel `trending` (ditulis langsung oleh Hub: platform x_t24 / yt_feed / google).
+  // Cadangan: snapshot `content_hub_cache` — hanya dipakai bila umurnya masih segar (<= 6 jam).
   const [cached, rows] = await Promise.all([
     cachedHubTrends().catch(() => [] as Trend[]),
     supabase().from('trending').select('id,platform,kind,rank,title,url,metric,image_url')
       .or(`expires_at.is.null,expires_at.gt.${new Date().toISOString()}`).order('rank')
       .then(r => (r.data ?? []) as Trend[], () => [] as Trend[]),
   ]);
-  return mergeTrends(cached, rows);
+  // Baris tabel `trending` adalah data langsung (Hub menulis ke sana), sedangkan `cached` adalah
+  // arsip snapshot lama. Karena itu yang langsung didahulukan; arsip hanya mengisi kekosongan.
+  return mergeTrends(rows, cached);
 }
 
 /** Halaman feed campuran: 6 berita + 4 hiburan per halaman (komposisi 60/40), diselang-seling. */

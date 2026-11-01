@@ -57,7 +57,12 @@ export function supabaseDeliver(fetcher: typeof fetch = fetch, env: NodeJS.Proce
         headers: {apikey: key, Authorization: `Bearer ${key}`, 'Content-Type': 'application/json', Prefer: 'resolution=ignore-duplicates,return=representation'},
         body: JSON.stringify(rows.map(x => x.row)),
       });
-      if (!r.ok) { await r.body?.cancel().catch(() => {}); throw Error(r.status === 409 ? 'PUBLISH_CONFLICT' : 'PUBLISH_HTTP_' + r.status); }
+      if (!r.ok) {
+        // Sebab dari portal ikut dibawa supaya tidak lagi menebak dari kode status saja.
+        const body = await r.text().catch(() => '');
+        const clean = body.replace(/\s+/g, ' ').trim().slice(0, 200);
+        throw Error((r.status === 409 ? 'PUBLISH_CONFLICT' : 'PUBLISH_HTTP_' + r.status) + (clean ? ' — ' + clean : ''));
+      }
       const payload = await r.text();
       if (payload.length > 200000) throw Error('PUBLISH_RESPONSE_TOO_LARGE');
       const returned = new Map<string, string>();
@@ -90,16 +95,32 @@ export async function repairArticleImages(db: import('@libsql/client').Client, o
   const out = {checked: 0, missing: 0, repaired: 0};
   if (!target.url || !target.key) return out;
   const max = opts.max ?? 15;
-  const rows = (await db.execute({sql: "SELECT snapshot_json FROM hub_publish_outbox WHERE status='published' ORDER BY created_at DESC LIMIT 200", args: []})).rows;
-  const wants = new Map<string, {image: string; credit: string}>();
+  // Sumber gambar diambil dari dua tempat: catatan pengiriman (snapshot) DAN keadaan Hub saat ini.
+  // Artikel yang terbit sebelum gambar tersimpan hanya punya snapshot tanpa gambar; keadaan
+  // `hub_items.source_image_url` sekarang bisa sudah terisi (isian mundur r14) dan itu dipakai.
+  let rows: {snapshot_json: unknown; current_image: unknown; rights: unknown; source_name_db: unknown}[] = [];
+  try {
+    rows = (await db.execute({sql: `SELECT o.snapshot_json, i.source_image_url AS current_image, s.rights_status AS rights, s.name AS source_name_db
+      FROM hub_publish_outbox o
+      LEFT JOIN hub_items i ON i.id=o.item_id
+      LEFT JOIN hub_sources s ON s.id=i.source_id
+      WHERE o.status='published' ORDER BY o.created_at DESC LIMIT 200`, args: []})).rows as unknown as typeof rows;
+  } catch {
+    // Skema lama tanpa kolom gambar: tetap bisa merapikan nama penerbit.
+    rows = (await db.execute({sql: "SELECT snapshot_json, NULL current_image, NULL rights, NULL source_name_db FROM hub_publish_outbox WHERE status='published' ORDER BY created_at DESC LIMIT 200", args: []})).rows as unknown as typeof rows;
+  }
+  const wants = new Map<string, {image: string; credit: string; name: string}>();
   for (const row of rows) {
     let snap: Record<string, unknown>;
     try { snap = JSON.parse(String(row.snapshot_json)) as Record<string, unknown>; } catch { continue; }
-    if (String(snap.sourceRights || '') !== 'permission_confirmed') continue;
-    const image = typeof snap.sourceImageUrl === 'string' ? snap.sourceImageUrl : '';
+    const rights = String(snap.sourceRights || row.rights || '');
+    if (rights !== 'permission_confirmed') continue;
+    const name = String(snap.sourceName || row.source_name_db || '');
+    const image = /^https:\/\//i.test(String(snap.sourceImageUrl || '')) ? String(snap.sourceImageUrl)
+      : (/^https:\/\//i.test(String(row.current_image || '')) ? String(row.current_image) : '');
     const url = typeof snap.originalUrl === 'string' ? snap.originalUrl : '';
-    if (!/^https:\/\//i.test(image) || !/^https:\/\//i.test(url)) continue;
-    if (!wants.has(url)) wants.set(url, {image, credit: String(snap.sourceName || 'Penerbit sumber')});
+    if (!image || !/^https:\/\//i.test(url)) continue;
+    if (!wants.has(url)) wants.set(url, {image, credit: name || 'Penerbit sumber', name});
   }
   out.checked = wants.size;
   if (!wants.size) return out;
@@ -110,14 +131,19 @@ export async function repairArticleImages(db: import('@libsql/client').Client, o
   if (origin.protocol !== 'https:') return out;
   const headers = {apikey: target.key, Authorization: `Bearer ${target.key}`};
   const filter = urls.map(u => `"${u.replace(/"/g, '%22')}"`).join(',');
-  let ids: {id: string; source_url: string}[] = [];
+  // Ambil keadaan sebenarnya lalu putuskan di sisi kita: baris lama bisa kehilangan gambar,
+  // nama penerbit, atau keduanya — filter server tunggal tidak cukup.
+  let found: {id: string; source_url: string; image_url: string | null; source_name: string | null}[] = [];
   try {
-    const r = await fetcher(new URL(`/rest/v1/articles?select=id,source_url&image_url=is.null&source_url=in.(${filter})`, origin).href,
+    const r = await fetcher(new URL(`/rest/v1/articles?select=id,source_url,image_url,source_name&source_url=in.(${filter})`, origin).href,
       {method: 'GET', redirect: 'error', signal: AbortSignal.timeout(15000), headers});
     if (!r.ok) { await r.body?.cancel().catch(() => {}); return out; }
-    ids = JSON.parse(await r.text()) as {id: string; source_url: string}[] | [];
-    if (!Array.isArray(ids)) ids = [];
+    const parsed = JSON.parse(await r.text()) as typeof found | null;
+    if (Array.isArray(parsed)) found = parsed;
   } catch { return out; }
+  const needsFix = (row: (typeof found)[number]) =>
+    !/^https:\/\//i.test(String(row.image_url || '')) || !row.source_name || row.source_name === 'Penerbit sumber';
+  const ids = found.filter(needsFix);
   out.missing = ids.length;
   for (const row of ids.slice(0, max)) {
     const want = wants.get(String(row.source_url));
@@ -126,7 +152,10 @@ export async function repairArticleImages(db: import('@libsql/client').Client, o
       const r = await fetcher(new URL(`/rest/v1/articles?id=eq.${encodeURIComponent(String(row.id))}`, origin).href,
         {method: 'PATCH', redirect: 'error', signal: AbortSignal.timeout(15000),
           headers: {...headers, 'Content-Type': 'application/json', Prefer: 'return=minimal'},
-          body: JSON.stringify({image_url: want.image, image_credit: want.credit})});
+          // Nama penerbit ikut dirapikan: baris lama tersimpan kosong sehingga portal
+          // menampilkan teks cadangan "Penerbit sumber".
+          body: JSON.stringify({image_url: want.image, image_credit: want.credit,
+            ...(want.name ? {source_name: want.name} : {})})});
       if (r.ok) out.repaired += 1;
       else await r.body?.cancel().catch(() => {});
     } catch { /* satu baris gagal tidak menghentikan sisanya */ }
