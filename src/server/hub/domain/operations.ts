@@ -1,7 +1,45 @@
 import type {Client} from '@libsql/client';
 import {randomUUID} from 'node:crypto';
 import {readArchive} from './archive';
-export const PLAYLIST='OLT0p76Cd7kYMmbBNlt_TvC4vzjFTMKMNjw';
+/**
+ * ID playlist YouTube. Dulu tertulis mati di sini sehingga mengganti playlist berarti mengubah kode
+ * dan mengunggah ulang paket. Sekarang bisa diatur lewat HUB_YOUTUBE_PLAYLIST; nilai bawaan tetap
+ * playlist lama supaya tidak ada yang berubah bila env belum diisi.
+ * Format yang diterima: ID saja (OL...) atau URL lengkap (…?list=OL...).
+ */
+export function playlistId(raw: string | undefined = process.env.HUB_YOUTUBE_PLAYLIST): string {
+  const text = String(raw ?? '').trim();
+  if (!text) return 'OLT0p76Cd7kYMmbBNlt_TvC4vzjFTMKMNjw';
+  const fromUrl = text.match(/[?&]list=([A-Za-z0-9_-]{10,64})/);
+  const candidate = fromUrl ? fromUrl[1] : text;
+  return /^[A-Za-z0-9_-]{10,64}$/.test(candidate) ? candidate : 'OLT0p76Cd7kYMmbBNlt_TvC4vzjFTMKMNjw';
+}
+export const PLAYLIST=playlistId();
+
+/**
+ * Playlist yang BENAR-BENAR dipakai: pilihan pemilik di panel > env HUB_YOUTUBE_PLAYLIST > bawaan.
+ * Tabelnya dibuat bila belum ada — CREATE TABLE IF NOT EXISTS, bukan membangun ulang tabel lama.
+ */
+export async function currentPlaylist(db:Client):Promise<string>{
+ try{
+  await db.execute("CREATE TABLE IF NOT EXISTS hub_playlist_v1 (id TEXT PRIMARY KEY CHECK(id='owner'),playlist_id TEXT NOT NULL,updated_at TEXT NOT NULL)");
+  const r=(await db.execute("SELECT playlist_id FROM hub_playlist_v1 WHERE id='owner'")).rows[0];
+  if(r?.playlist_id)return playlistId(String(r.playlist_id));
+ }catch{ /* tabel belum siap: pakai env/bawaan */ }
+ return PLAYLIST;
+}
+
+/** Simpan playlist pilihan pemilik. Bentuk yang diterima: ID saja atau URL YouTube lengkap. */
+export async function savePlaylist(db:Client,raw:unknown):Promise<string>{
+ const text=String(raw??'').trim();
+ const id=playlistId(text);
+ // Tolak masukan yang tidak menghasilkan ID sah — lebih baik galat jelas daripada diam-diam memakai bawaan.
+ const looksValid=/^[A-Za-z0-9_-]{10,64}$/.test(/[?&]list=([A-Za-z0-9_-]{10,64})/.exec(text)?.[1]||text);
+ if(!looksValid)throw Error('PLAYLIST_FORMAT_INVALID');
+ await db.execute("CREATE TABLE IF NOT EXISTS hub_playlist_v1 (id TEXT PRIMARY KEY CHECK(id='owner'),playlist_id TEXT NOT NULL,updated_at TEXT NOT NULL)");
+ await db.execute({sql:"INSERT INTO hub_playlist_v1(id,playlist_id,updated_at) VALUES('owner',?,?) ON CONFLICT(id) DO UPDATE SET playlist_id=excluded.playlist_id,updated_at=excluded.updated_at",args:[id,new Date().toISOString()]});
+ return id;
+}
 export type Preferences={freshnessHours:number;retentionDays:number;allowX:boolean;allowYoutube:boolean;allowRss:boolean};
 export const defaults:Preferences={freshnessHours:72,retentionDays:30,allowX:false,allowYoutube:false,allowRss:false};
 export async function prepareFeatures(db:Client,master?:string){

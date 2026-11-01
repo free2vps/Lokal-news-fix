@@ -1,6 +1,6 @@
 import {NextResponse} from 'next/server';
 import {authenticatedDb,errorJson,invalidMutation,NO_STORE,readJson} from '@/server/hub/security/http';
-import {getPreferences,savePreferences,retentionPreview,logs} from '@/server/hub/domain/operations';
+import {getPreferences,savePreferences,retentionPreview,logs,currentPlaylist,savePlaylist} from '@/server/hub/domain/operations';
 import {getX,getYoutube,syncX,syncYoutube} from '@/server/hub/domain/social';
 import {recommendations} from '@/server/hub/domain/recommendations';
 import {verifyRss,setRssActive,syncRss,toggleSource} from '@/server/hub/domain/rss-runtime';
@@ -18,7 +18,7 @@ export async function GET(request:Request){
   case 'youtube':return reply(await getYoutube(a.db,master));
   case 'logs':return reply(await logs(a.db,master));
   case 'recommendations':return reply(await recommendations(a.db,(await getPreferences(a.db)).freshnessHours));
-  case 'settings':{const preferences=await getPreferences(a.db);return reply({preferences,retention:await retentionPreview(a.db,preferences.retentionDays),schedulerEnabled:false});}
+  case 'settings':{const preferences=await getPreferences(a.db);return reply({preferences,playlist:await currentPlaylist(a.db),retention:await retentionPreview(a.db,preferences.retentionDays),schedulerEnabled:false});}
   case 'integration':{
    // Status sebenarnya: tujuan terbit, saklar redaktur, jumlah terbit hari ini.
    let outbox:Record<string,unknown>[]=[];let publishedToday=0;let approved=0;
@@ -40,6 +40,10 @@ export async function POST(request:Request){
   if(b.action==='settings'){
    if(!b.preferences||typeof b.preferences!=='object'||Array.isArray(b.preferences))return errorJson('Pengaturan tidak valid.',400);
    return reply({preferences:await savePreferences(a.db,b.preferences as Record<string,unknown>)});
+  }
+  if(b.action==='playlist'){
+   try{return reply({playlist:await savePlaylist(a.db,b.playlist)});}
+   catch(e){return errorJson(e instanceof Error&&e.message==='PLAYLIST_FORMAT_INVALID'?'ID playlist tidak valid. Tempel ID (awalnya OL…) atau alamat playlist YouTube lengkap.':'Playlist gagal disimpan.',400);}
   }
   if(b.action==='password'){
    const result=await changeOwnerPassword(a.db,b.currentPassword,b.newPassword);

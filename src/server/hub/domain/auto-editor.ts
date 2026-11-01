@@ -12,6 +12,7 @@ import {sourceTime} from './editorial';
 import {detectRegion} from '@/config/regions';
 import {topicOf} from './topic';
 import {prepareCore, schemaReport} from './schema-core';
+import {getPreferences} from './operations';
 
 /**
  * Tahap 10 — Redaktur Otomatis.
@@ -623,6 +624,26 @@ export async function runAutoEditor(db: Client, opts: RunOptions = {}) {
       push('social_queue', true, `${out.inserted} artikel masuk antrean media sosial`, out.inserted);
     } else push('social_queue', false, 'Tabel antrean sosial belum disiapkan — Facebook tidak akan menerima apa pun', 0);
   } catch { push('social_queue', false, 'Gagal mengisi antrean media sosial', 0); }
+
+  // 8b. TARIK tren X yang benar-benar baru SEBELUM dikirim ke beranda.
+  //     Sebelumnya tidak ada: yang dikirim hanya snapshot lama, sehingga panel Trending bisa
+  //     menampilkan "data lama" berhari-hari padahal putaran tetap berjalan tiap 3 jam.
+  //     Hanya berjalan bila pemilik sudah menyatakan izin (allowX) — tanpa izin, tidak ada
+  //     permintaan keluar sama sekali.
+  try {
+    const prefs = await getPreferences(db);
+    if (prefs.allowX !== true) push('sync_trend', true, 'Dilewati: akses X belum diizinkan pemilik', 0);
+    else {
+      const {syncX} = await import('./social');
+      const value: any = await syncX(db);
+      const n = Number(value?.items?.length || 0);
+      push('sync_trend', true, n ? `${n} tren X terbaru ditarik` : 'Sumber tren X tidak mengembalikan daftar', n);
+    }
+  } catch (e) {
+    // Kegagalan tren TIDAK boleh menggagalkan penarikan berita — cukup dicatat apa adanya.
+    const msg = readable(e);
+    push('sync_trend', false, /JOB_COOLDOWN/.test(msg) ? 'Tren X baru saja ditarik — dilewati giliran ini' : `Tren X gagal ditarik (${msg})`, 0);
+  }
 
   // 9. Tren X + YouTube ke beranda portal (hanya bila tujuan terbit tersambung).
   try {
