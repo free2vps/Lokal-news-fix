@@ -32,7 +32,7 @@ export default function LoadMoreFeed({ skipNews, skipFun, initialDone = false, i
     <div className="py-8 text-center text-sm text-muted" aria-busy={busy}>
       {error && <p role="alert" className="mb-3">{error}</p>}
       {done ? <p>Belum ada berita tambahan pada pembaruan ini.</p> :
-        <button onClick={load} disabled={busy} className="rounded-full border border-line bg-surface px-6 py-2.5 font-medium hover:border-brand disabled:opacity-60">
+        <button onClick={load} disabled={busy} className="inline-flex items-center gap-2 rounded-full bg-brand px-8 py-3 text-base font-semibold text-bg shadow-sm transition hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand disabled:opacity-60">
           {busy ? 'Memuat…' : error ? 'Coba muat lagi' : 'Muat berita lainnya'}
         </button>}
     </div>

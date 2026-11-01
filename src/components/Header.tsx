@@ -4,6 +4,7 @@ import { CATEGORIES, slugify } from '@/lib/utils';
 import { getTrending } from '@/lib/queries';
 import SearchForm from './SearchForm';
 import ThemeToggle from './ThemeToggle';
+import Logo from './Logo';
 import TrendTicker from './TrendTicker';
 
 export default async function Header() {
@@ -19,10 +20,7 @@ export default async function Header() {
           </div>
         </div>
         <div className="mx-auto flex max-w-6xl items-center gap-3 px-4 py-3">
-          <Link href="/" className="flex items-center gap-2.5 font-serif text-3xl font-bold tracking-tight text-brand">
-            <span className="grid h-10 w-10 place-items-center rounded-lg bg-brand text-2xl text-bg" aria-hidden>{SITE.name[0]}</span>
-            <span className="hidden sm:inline">{SITE.name}</span>
-          </Link>
+          <Link href="/" aria-label={`${SITE.name} — beranda`}><Logo /></Link>
           <div className="mx-auto w-full max-w-2xl"><SearchForm /></div>
           <ThemeToggle />
         </div>

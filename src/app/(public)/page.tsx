@@ -26,9 +26,12 @@ const adOn = (k: AdKey) => ADS[k].kind !== 'none' || process.env.NODE_ENV !== 'p
 
 export default async function Home() {
   const hubMode=process.env.CONTENT_HUB_ENABLED==='true';
-  const [news, fun, trending, regions, jobs] = await Promise.all([
+  const [news, fun, trending, regions, jobs, pemda, olahraga] = await Promise.all([
     getLatest({ limit: hubMode?6:9, section: 'berita' }), getLatest({ limit: hubMode?4:2, section: 'hiburan' }),
     getTrending(), getActiveRegions(), getLatest({ limit: 6, category: 'Lowongan & CPNS' }),
+    // Slot di bawah carousel dahulu kosong bila gambar kurang dari 9. Sekarang diisi tetap:
+    // Pemda dulu, lalu Hiburan, lalu Olahraga.
+    getLatest({ limit: 4, category: 'Info Pemda' }), getLatest({ limit: 4, category: 'Olahraga' }),
   ]);
   const pool: Article[] = [...news, ...fun].sort((a, b) => +new Date(b.published_at) - +new Date(a.published_at));
   // F-03: jangan pernah menampilkan instruksi admin di halaman publik.
@@ -37,7 +40,7 @@ export default async function Home() {
     const cats = ['Info Pemda', 'Peristiwa Daerah', 'Politik', 'Ekonomi', 'Olahraga', 'Hukum & Kriminal'];
     return (
       <div className="py-16">
-        <h1 className="font-serif text-3xl font-semibold">Kabar Lokal</h1>
+        <h1 className="font-serif text-3xl font-semibold">{SITE.name}</h1>
         <p className="mt-3 max-w-prose text-muted">
           Belum ada berita yang bisa ditampilkan saat ini. Sementara itu, jelajahi berita menurut
           wilayah atau kategori di bawah ini.
@@ -57,7 +60,22 @@ export default async function Home() {
   const good = (a: Article) => !!a.image_url && (!a.image_width || a.image_width >= 600); // hindari gambar buram
   const withImg = pool.filter(good);
   const slides = withImg.slice(0, 8);
-  const trio = withImg.slice(8, 11);
+  // Tiga kartu pengisi: satu dari Info Pemda, satu dari Hiburan, satu dari Olahraga — berurutan.
+  // Bila salah satu kategori belum punya artikel bergambar, slot diisi sisa berita terbaru lain
+  // supaya tidak pernah tersisa ruang kosong.
+  const used = new Set(slides.map((a) => a.id));
+  const pick = (list: Article[]) => {
+    const a = list.find((x) => !used.has(x.id) && good(x));
+    if (a) used.add(a.id);
+    return a;
+  };
+  const pemdaPick = pick(pemda);
+  const funPick = pick(fun);
+  const olahragaPick = pick(olahraga);
+  const trio = [pemdaPick, funPick, olahragaPick, ...withImg.slice(8, 11)]
+    .filter((a): a is Article => !!a)
+    .filter((a, i, arr) => arr.findIndex((x) => x.id === a.id) === i)
+    .slice(0, 3);
   const shown = new Set([...slides, ...trio].map((a) => a.id));
   const leftovers = pool.filter((a) => !shown.has(a.id));
   const feed = await getMixedPage(0, { news: news.length, fun: fun.length });
@@ -78,7 +96,11 @@ export default async function Home() {
         <aside className="order-2 lg:order-1"><TrendingNow items={trending} /></aside>
         <section aria-label="Berita utama" className="order-1 min-w-0 space-y-4 lg:order-2">
           <HeroCarousel slides={slides} />
-          {trio.length > 0 && <div className="grid grid-cols-3 gap-3">{trio.map((a) => <HeroCard key={a.id} a={a} size="sm" compact />)}</div>}
+          {trio.length > 0 && (
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              {trio.map((a) => <HeroCard key={a.id} a={a} size="sm" compact />)}
+            </div>
+          )}
         </section>
         {rightTop && (
           <aside className="order-3 space-y-4">

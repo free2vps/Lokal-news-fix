@@ -1,5 +1,5 @@
 {
-  "name": "kabar-lokal",
+  "name": "portal-hub",
   "version": "1.0.0",
   "private": true,
   "scripts": {
@@ -8,7 +8,9 @@
     "start": "next start",
     "test": "tsx --test tests/*.test.ts",
     "hub:init-local": "tsx scripts/hub/init-local.ts --local-only",
-    "test:hub": "tsx --test tests/hub-*.test.ts"
+    "test:hub": "tsx --test tests/hub-*.test.ts",
+    "check:isr": "node scripts/check-isr.mjs build.log",
+    "verify": "tsc --noEmit && npm test && npm run build 2>&1 | tee build.log && npm run check:isr"
   },
   "dependencies": {
     "@libsql/client": "^0.18.0",

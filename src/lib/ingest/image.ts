@@ -27,7 +27,7 @@ function parse(b: Buffer): Size | null {
 export async function imageSize(url: string): Promise<Size | null> {
   try {
     if (!/^https?:\/\//i.test(url)) return null;
-    const r = await fetch(url, { headers: { Range: 'bytes=0-131071', 'User-Agent': 'KabarLokalBot/1.0' }, signal: AbortSignal.timeout(8000), cache: 'no-store' });
+    const r = await fetch(url, { headers: { Range: 'bytes=0-131071', 'User-Agent': 'PortalHubBot/1.0' }, signal: AbortSignal.timeout(8000), cache: 'no-store' });
     if (!r.ok || !r.body) return null;
     const reader = r.body.getReader();
     const chunks: Uint8Array[] = [];

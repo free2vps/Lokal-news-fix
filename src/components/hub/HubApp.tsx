@@ -11,7 +11,7 @@ type Source = { id: string; name: string; jurisdiction: string; region: string; 
 type News = { id: string; sourceName: string; sourceUrl: string; sourceTitle: string; sourceSnippet: string | null; sourcePublishedAt: string | null; sourceDateRaw: string | null; firstSeenAt: string; editorialTitle: string | null; editorialSummary: string | null; editorialCategory: string | null; version: number; reviewState: string; possibleDuplicates: number };
 type Ai = { keysReadable?: boolean; policy?: {allowPublic:boolean;groqFree:boolean}; masterKeyReady: boolean; runtime: string; providers: { provider: string; model: string; keyConfigured: boolean; updatedAt: string; use: string }[] };
 type Auth = { configured: boolean; authenticated: boolean; setupAvailable: boolean };
-const tabs = ['Ringkasan', 'RSS Manager', 'Pratinjau Pilihan', 'Tinjau Manual', 'X Trending', 'YouTube Music', 'Sync Logs', 'API Integration', 'Pengaturan AI', 'Pengaturan'] as const;
+const tabs = ['Ringkasan', 'RSS Manager', 'Pratinjau Pilihan', 'Tinjau Manual', 'X Trending', 'YouTube Music', 'Sync Logs', 'API Integration', 'Pengaturan AI', 'Pengaturan Situs', 'Pengaturan'] as const;
 type Tab = typeof tabs[number];
 
 async function api<T>(path: string, body?: Record<string, unknown>): Promise<T> {
@@ -37,6 +37,7 @@ function auditText(audit: Audit | null, sourceId: string) {
 }
 
 import RssManager from './RssManager';
+import SiteSettings from './SiteSettings';
 
 export default function HubApp({ staticPreviewEnabled = false, bootstrapEnabled = false }: { staticPreviewEnabled?: boolean; bootstrapEnabled?: boolean }) {
   const [staticPreview, setStaticPreview] = useState(false);
@@ -145,6 +146,7 @@ export default function HubApp({ staticPreviewEnabled = false, bootstrapEnabled 
       </>}
       {tab === 'Tinjau Manual' && <><div className="notice"><b>Opsional — tidak wajib.</b> Berita sudah diolah dan terbit <b>otomatis</b> tanpa persetujuan Anda di halaman ini. Portal tidak mengambil berita dari menu ini; yang terbit adalah hasil <b>Redaktur Otomatis</b> (menu API Integration). Menu ini hanya pratinjau + alat koreksi bila Anda kebetulan ingin membetulkan judul/ringkasan atau menolak satu berita. Profil, ringkasan dan nilai editorial <b>sudah dijalankan otomatis</b> setiap putaran — tombol manualnya dilipat di bawah.</div><details><summary>Alat manual (opsional — sudah otomatis)</summary><ProfileManager onCompleted={()=>setProfileRevision(v=>v+1)}/><SummaryManager onCompleted={reload}/><ValueManager onCompleted={reload}/></details><div className="form-actions"><button className="button secondary" disabled={offset===0} onClick={()=>setOffset(Math.max(0,offset-100))}>Sebelumnya</button><span>{total?offset+1:0}–{Math.min(offset+100,total)} / {total}</span><button className="button secondary" disabled={offset+100>=total} onClick={()=>setOffset(offset+100)}>Berikutnya</button></div><div className="notice">Setiap revisi harus disetujui. Tanggal terbit tidak diambil dari waktu penemuan; identitas yang meragukan dan tanggal yang belum jelas menghalangi persetujuan. Publikasi masih dinonaktifkan.</div>{news === null ? <div className="panel">Memuat berita…</div> : news.length === 0 ? <div className="panel"><h2>Belum ada kandidat tersimpan</h2><p>Kolektor belum diintegrasikan atau diaktifkan. Tidak ada berita contoh yang ditampilkan.</p></div> : <div className="article-grid">{news.map(item => <NewsCard key={item.id} item={item} onChanged={reload} profileRevision={profileRevision} />)}</div>}</>}
       {tab === 'Pratinjau Pilihan' && <><div className="notice"><b>Ini hanya pratinjau — tidak menerbitkan apa pun.</b> Menu ini menampilkan daftar berita yang <i>akan</i> dipilih oleh aturan (wilayah Bali/NTB/NTT, umur berita, keragaman 60:40, batas hiburan 5–10%, maksimum 50). Tidak ada tombol aksi di sini, dan portal <b>tidak</b> mengambil berita dari menu ini. Yang terbit ke portal adalah hasil <b>Redaktur Otomatis</b> di menu <b>API Integration</b>.</div><HubModules key="recommendations" kind="recommendations"/></>}
+      {tab === 'Pengaturan Situs' && <SiteSettings />}
       {tab === 'X Trending' && <HubModules key="x" kind="x" onOpenSettings={()=>setTab('Pengaturan')}/>}
       {tab === 'YouTube Music' && <HubModules key="youtube" kind="youtube" onOpenSettings={()=>setTab('Pengaturan')}/>}
       {tab === 'Sync Logs' && <HubModules key="logs" kind="logs"/>}

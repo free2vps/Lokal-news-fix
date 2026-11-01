@@ -13,6 +13,7 @@ import { mergeFeed, needsLatestFill, mergeTrends } from './feed-merge';
 export const TAG_ARTICLES = 'hub-articles';
 export const TAG_TRENDS = 'hub-trends';
 export const TAG_REGIONS = 'hub-regions';
+export const TAG_SITE = 'hub-site';
 
 const LIST = 'source_url,id,slug,title,ai_summary,category,tags,image_url,image_credit,source_name,published_at,region,image_width,image_height,section';
 const DETAIL = LIST + ',source_url,original_title,key_points,meta_title,meta_description,social_caption,section_headings';
@@ -136,4 +137,23 @@ const activeRegionsCached = unstable_cache(async () => {
 }, ['active-regions'], { revalidate: 600, tags: [TAG_ARTICLES, TAG_REGIONS] });
 export async function getActiveRegions() {
   return activeRegionsCached();
+}
+
+/**
+ * Media sosial portal — dibaca dari database Hub (diisi lewat panel), BUKAN dari env.
+ * Env hilang saat pindah hosting; baris database ikut pindah. Bila database belum siap,
+ * kembalikan daftar kosong supaya footer tetap tampil tanpa tombol rusak.
+ */
+const socialCached = unstable_cache(async (): Promise<{ key: string; label: string; url: string }[]> => {
+  try {
+    const { getHubDb } = await import('@/server/hub/db/client');
+    const { readPublicSocial } = await import('@/server/hub/domain/site-settings');
+    return await readPublicSocial(getHubDb());
+  } catch {
+    return [];
+  }
+}, ['site-social'], { revalidate: 600, tags: [TAG_SITE] });
+
+export function getSocialLinks() {
+  return socialCached();
 }

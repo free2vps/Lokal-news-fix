@@ -41,7 +41,6 @@ export default function HeroCarousel({ slides }: { slides: Article[] }) {
       {n > 1 && (
         <>
           <div className="absolute right-3 top-3 flex items-center gap-2">
-            <span className="rounded-full bg-black/55 px-3 py-1 text-xs font-medium text-white backdrop-blur">{i + 1} dari {n}</span>
             <button onClick={() => setPlaying((p) => !p)} aria-label={playing ? 'Jeda pergantian otomatis' : 'Putar pergantian otomatis'} className="grid h-7 w-7 place-items-center rounded-full bg-black/55 text-white backdrop-blur hover:bg-black/75">
               {playing ? <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden><path d="M6 4h4v16H6zM14 4h4v16h-4z" /></svg> : <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden><path d="M8 5v14l11-7z" /></svg>}
             </button>

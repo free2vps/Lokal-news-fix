@@ -119,6 +119,14 @@ CREATE TABLE IF NOT EXISTS hub_consumed_nonces (
 );
 
 -- Only encrypted provider credentials are stored; no provider calls are made yet.
+-- Pengaturan situs yang diisi dari panel (mis. tautan media sosial footer).
+-- Disimpan di database, bukan env, agar ikut pindah saat hosting diganti.
+CREATE TABLE IF NOT EXISTS hub_site_settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS hub_ai_provider_settings (
   provider TEXT PRIMARY KEY CHECK(provider IN ('openrouter','groq','cohere')),
   model TEXT NOT NULL,
