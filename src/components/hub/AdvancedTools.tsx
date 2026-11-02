@@ -51,11 +51,19 @@ export default function AdvancedTools() {
     <details className="panel">
       <summary><b>Kirim ke Facebook lewat Make</b> <span className="tiny">— opsional, kalau Anda memakai Make</span></summary>
       <p className="tiny">Hub hanya menyiapkan daftar artikel siap-posting. Token Facebook tetap disimpan di Make, bukan di sini.</p>
-      <p><b>Antrean:</b> {social?.pending ?? 0} menunggu · {social?.delivered ?? 0} terkirim · {social?.failed ?? 0} gagal · maks {social?.facebookMaxPerRun ?? 4} per tarikan</p>
+      <p><b>Antrean:</b> {social?.pending ?? 0} menunggu · {social?.delivered ?? 0} terkirim · {social?.failed ?? 0} gagal · {social?.stale ?? 0} basi · maks {social?.facebookMaxPerRun ?? 4} per tarikan</p>
+      {social && social.ready === false && <p className="notice">Antrean media sosial belum disiapkan. Tekan <b>Siapkan antrean</b> sekali — tidak menghapus data apa pun.</p>}
+      {social?.ready === true && <p className="tiny">Tertua menunggu: <b>{social.oldestPendingHours ?? 0} jam</b> · terkirim 24 jam terakhir: <b>{social.deliveredLast24h ?? 0}</b> · umur maksimum {social.policy?.maxAgeHours ?? 6} jam · kuota {social.policy?.dailyPostCap ?? 16}/hari {social.backlogHealthy === false ? '· ⚠️ ada tumpukan basi' : '· sehat'}</p>}
       <div className="form-actions">
-        <button className="button secondary" disabled={busy === 'social'} onClick={() => void act('social',
+        {social?.ready === false && <button className="button" disabled={busy === 'prep'} onClick={() => void act('prep',
+          () => call('/api/hub/social', {action: 'prepare', confirm: 'PREPARE SOCIAL'}),
+          'Antrean siap. Sekarang tekan Buat token Make.')}>Siapkan antrean</button>}
+        {social?.ready !== false && <button className="button secondary" disabled={busy === 'social'} onClick={() => void act('social',
           async () => { const r = await call('/api/hub/social', {action: 'issueToken', confirm: 'ISSUE SOCIAL TOKEN', label: 'make.com'}); if (r?.token) setSocialToken(r.token); },
-          'Token Make dibuat. Salin sekarang — tidak ditampilkan lagi.')}>Buat token Make</button>
+          'Token Make dibuat. Salin sekarang — tidak ditampilkan lagi.')}>Buat token Make</button>}
+        {social?.ready === true && <button className="button secondary" disabled={busy === 'enq'} onClick={() => void act('enq',
+          () => call('/api/hub/social', {action: 'enqueue', confirm: 'ENQUEUE SOCIAL'}),
+          'Antrean diisi dari berita yang terbit dalam 6 jam terakhir.')}>Isi antrean sekarang</button>}
       </div>
       {socialToken && <p role="status" className="tiny"><b>Token Make:</b> <code>{socialToken}</code></p>}
       {!!social?.tokens?.length && <ul className="tiny">{social.tokens.map((t: any) => <li key={t.id}>{t.label} · dibuat {at(t.createdAt)} · {t.revoked ? 'dicabut' : `dipakai ${at(t.lastUsedAt)}`}

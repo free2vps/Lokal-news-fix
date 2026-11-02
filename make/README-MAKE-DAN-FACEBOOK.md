@@ -22,15 +22,36 @@ Kalau skenario Make dimatikan, berita tetap terbit di portal — hanya tidak dip
 
 ## Langkah 1 — Buat token di Hub
 
-1. Buka **Hub → API Integration** (atau menu media sosial)
-2. Jalankan berurutan:
-   - `prepare` (siapkan tabel antrean) → konfirmasi **PREPARE SOCIAL**
-   - `issueToken` (buat token) → konfirmasi **ISSUE SOCIAL TOKEN**
-3. **Salin token yang muncul SEKALI itu saja** — Hub tidak menampilkannya lagi.
+Ada di **Hub → Lanjutan → "Kirim ke Facebook lewat Make"**.
 
-Token ini bernilai seperti kata sandi. Jangan tempel di chat, jangan simpan di repo.
+Ikuti tombol dari kiri ke kanan. Tombolnya muncul **bergantian sesuai keadaan**,
+jadi tidak semua terlihat sekaligus:
 
----
+| Keadaan | Tombol yang muncul | Yang terjadi |
+|---|---|---|
+| Antrean belum disiapkan | **Siapkan antrean** | Membuat tabel antrean. Tidak menghapus data |
+| Antrean sudah siap | **Buat token Make** | Token muncul **sekali** — salin saat itu |
+| Antrean sudah siap | **Isi antrean sekarang** | Mengisi dari berita 6 jam terakhir, agar Make bisa diuji hari ini juga |
+
+Di atas tombol ada baris status:
+
+> Tertua menunggu: **0 jam** · terkirim 24 jam terakhir: **0** · umur maksimum 6 jam · kuota 16/hari · sehat
+
+Kalau tulisan **"⚠️ ada tumpukan basi"** muncul, artinya ada berita menunggu lebih dari 6 jam —
+biasanya penjadwal berhenti. Periksa GitHub Actions.
+
+Token ini bernilai seperti kata sandi. **Jangan tempel di chat, jangan simpan di repo.**
+
+### Kalau tombol "Siapkan antrean" belum ada
+
+Itu berarti paket r43 belum terpasang. Jalan pintas tanpa unggah:
+
+**Hub → Redaktur Otomatis → ⚡ Sekali Atur** → ketik `SIAPKAN SEMUA`.
+
+Cara ini **juga** menyiapkan antrean media sosial dan menerbitkan token Make sekaligus.
+Tapi ia **melakukan hal lain juga**: mengaktifkan semua sumber RSS, menandai haknya
+`permission_confirmed`, dan menyalakan redaktur. Aman kalau Anda memang sudah begitu,
+tapi **jangan dipakai** kalau ada sumber yang sengaja Anda turunkan ke `metadata_only`.
 
 ## Langkah 2 — Impor skenario ke Make
 

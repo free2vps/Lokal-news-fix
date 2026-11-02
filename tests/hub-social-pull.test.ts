@@ -193,3 +193,20 @@ test('panel Lanjutan menyebut batas Facebook dan asal token, tanpa tombol berleb
   const buttons = (html.match(/<button/g) || []).length;
   assert.ok(buttons <= 6, `maksimum 6 tombol di Lanjutan, ditemukan ${buttons}`);
 });
+
+test('panel Lanjutan menyediakan tombol Siapkan antrean (bug: tombol token selalu gagal tanpa ini)', async () => {
+  const sumber = readFileSync('src/components/hub/AdvancedTools.tsx', 'utf8');
+  // Tanpa prepare, issueToken selalu ditolak SOCIAL_NOT_READY — pengguna mentok tanpa jalan keluar.
+  assert.ok(sumber.includes("action: 'prepare', confirm: 'PREPARE SOCIAL'"), 'tombol prepare wajib ada di panel');
+  assert.ok(sumber.includes('Siapkan antrean'), 'label tombol harus jelas bagi non-teknis');
+  assert.ok(sumber.includes("action: 'enqueue', confirm: 'ENQUEUE SOCIAL'"), 'isi antrean manual agar bisa diuji hari yang sama');
+  assert.ok(sumber.includes('oldestPendingHours'), 'status kesehatan antrean ditampilkan');
+  // Tombol prepare hanya muncul saat antrean memang belum siap.
+  assert.ok(sumber.includes("social?.ready === false"), 'prepare hanya relevan saat belum siap');
+});
+
+test('tombol di Lanjutan tetap sedikit — prepare menggantikan, bukan menambah', async () => {
+  const html = renderToStaticMarkup(React.createElement(AdvancedTools, {}));
+  const jumlah = (html.match(/<button/g) || []).length;
+  assert.ok(jumlah <= 6, `maksimum 6 tombol, ditemukan ${jumlah}`);
+});
