@@ -409,3 +409,12 @@ test('putaran benar-benar menyiapkan tabel fitur dan bisa membaca preferensi', a
     assert.equal(typeof prefs.allowYoutube, 'boolean', 'preferensi bisa dibaca tanpa galat');
   } finally { await db.close(); }
 });
+
+test('kuota harian dihitung dari yang BENAR-BENAR terbit, bukan yang tersangkut "sending"', async () => {
+  // Bug nyata: pembatas menghitung status 'sending' juga. Baris yang tersangkut di 'sending'
+  // memakan kuota sepanjang hari sementara panel menampilkan angka lebih kecil → sistem
+  // berhenti menerbitkan padahal panel tampak belum penuh.
+  const sumber = readFileSync('src/server/hub/domain/auto-editor.ts', 'utf8');
+  assert.ok(!sumber.includes("status IN ('sending','published')"), 'pembatas tidak boleh menghitung "sending"');
+  assert.ok(sumber.includes("status='published' AND created_at>=?"), 'harus menghitung yang terbit saja');
+});

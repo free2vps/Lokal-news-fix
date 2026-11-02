@@ -42,6 +42,20 @@ export async function POST(request:Request){
    if(!b.preferences||typeof b.preferences!=='object'||Array.isArray(b.preferences))return errorJson('Pengaturan tidak valid.',400);
    return reply({preferences:await savePreferences(a.db,b.preferences as Record<string,unknown>)});
   }
+  if(b.action==='youtubeKey'){
+   try{
+    const {prepareYoutubeSchema,saveYoutubeKey,clearYoutubeKey,youtubeKeyStatus}=await import('@/server/hub/domain/youtube-source');
+    await prepareYoutubeSchema(a.db);
+    if(b.clear===true)await clearYoutubeKey(a.db);
+    else if(typeof b.apiKey==='string'&&b.apiKey.trim())await saveYoutubeKey(a.db,b.apiKey,process.env.HUB_MASTER_KEY);
+    return reply(await youtubeKeyStatus(a.db,process.env.HUB_MASTER_KEY));
+   }catch(e){
+    const m=e instanceof Error?e.message:'';
+    return errorJson(m==='MASTER_KEY_REQUIRED'?'Master key belum siap; kunci tidak bisa disimpan terenkripsi.'
+      :m==='YOUTUBE_KEY_INVALID'?'Kunci API tidak valid (hanya huruf, angka, - dan _, panjang 20–200).'
+      :'Kunci YouTube gagal disimpan.',400);
+   }
+  }
   if(b.action==='playlist'){
    try{return reply({playlist:await savePlaylist(a.db,b.playlist)});}
    catch(e){return errorJson(e instanceof Error&&e.message==='PLAYLIST_FORMAT_INVALID'?'ID playlist tidak valid. Tempel ID (awalnya OL…) atau alamat playlist YouTube lengkap.':'Playlist gagal disimpan.',400);}

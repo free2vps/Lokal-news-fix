@@ -48,7 +48,27 @@ export async function parseYoutube(xml:string,pid:string=PLAYLIST){
  return [{videoId:video,title:i.title.slice(0,500),channel:i.creator?.slice(0,200)||'',videoUrl:'https://www.youtube.com/watch?v='+video,publishedAt}];}).slice(0,50);
  if(!items.length)throw Error('PLAYLIST_UNAVAILABLE');return {title:feed.title||null,items};
 }
-export async function syncYoutube(db:Client){const pid=await currentPlaylist(db);return runJob(db,'youtube',async()=>{const feed='https://www.youtube.com/feeds/videos.xml?playlist_id='+pid;await checkRobots(feed,['www.youtube.com']);const parsed=await parseYoutube(await publicFetch(feed,1500000,['www.youtube.com']),pid);const value={...parsed,playlistId:pid,sourceUrl:'https://www.youtube.com/playlist?list='+pid,observedAt:new Date().toISOString(),origin:'manual_feed',partial:true};await storeDataset(db,'youtube',value);return {value,count:parsed.items.length,status:'PARTIAL'};});}
+/**
+ * Tarik video playlist.
+ *
+ * RIWAYAT: sebelumnya selalu memakai feed RSS `/feeds/videos.xml`. Pada 2 Nov 2026 dipastikan
+ * robots.txt YouTube memuat `Disallow: /feeds/videos.xml` untuk `User-agent: *`, sehingga
+ * penarikan SELALU gagal dengan ROBOTS_BLOCKED dan panel Video di beranda kosong.
+ *
+ * Sekarang: bila kunci YouTube Data API tersedia, dipakai API resmi (sah, berkuota).
+ * Bila belum, jalur RSS tidak dicoba sama sekali — kita tidak menembus larangan, dan pesannya
+ * menjelaskan apa yang harus diisi.
+ */
+export async function syncYoutube(db:Client,master?:string){
+  const pid=await currentPlaylist(db);
+  return runJob(db,'youtube',async()=>{
+    const {pullYoutube}=await import('./youtube-source');
+    const items=await pullYoutube(db,pid,master);
+    const value={items,playlistId:pid,sourceUrl:'https://www.youtube.com/playlist?list='+pid,observedAt:new Date().toISOString(),origin:'youtube_api',partial:true};
+    await storeDataset(db,'youtube',value);
+    return {value,count:items.length,status:'PARTIAL'};
+  });
+}
 export async function getYoutube(db:Client,master:string|undefined){const live=await dataset(db,'youtube');if(live)return {...live,stale:Date.now()-Date.parse(live.observedAt)>86400000};
  const pid=await currentPlaylist(db);const rows=(await readArchive(db,'youtube_music_items',master)).filter(r=>r.playlist_id===pid&&/^[\w-]{11}$/.test(String(r.video_id)));
  return {items:rows.map(r=>({videoId:String(r.video_id),title:String(r.title),channel:String(r.channel_title||''),videoUrl:'https://www.youtube.com/watch?v='+r.video_id,publishedAt:r.video_published_at||null})),playlistId:pid,sourceUrl:'https://www.youtube.com/playlist?list='+pid,observedAt:rows.map(r=>String(r.last_seen_at||'')).sort().at(-1)||null,origin:'legacy_archive',stale:true,partial:true};

@@ -170,6 +170,7 @@ export async function prepareDependencies(db: Client) {
     // Tanpa ini syncX/syncYoutube/publishTrends gagal dengan "no such table: hub_preferences_v3",
     // sehingga panel Video di beranda kosong tanpa penjelasan apa pun.
     ['features', async () => (await import('./operations')).prepareFeatures(db)],
+    ['youtube_key', async () => (await import('./youtube-source')).prepareYoutubeSchema(db)],
   ];
   for (const [name, fn] of steps) {
     try { await fn(); out.push({name, ok: true, detail: 'siap'}); }
@@ -524,7 +525,10 @@ export async function runAutoEditor(db: Client, opts: RunOptions = {}) {
   // 6. Batas harian + batas per putaran.
   const dayStart = new Date(now); dayStart.setUTCHours(0, 0, 0, 0);
   let sentToday = 0;
-  try { sentToday = Number((await db.execute({sql: "SELECT count(*) n FROM hub_publish_outbox WHERE status IN ('sending','published') AND created_at>=?", args: [dayStart.toISOString()]})).rows[0].n); } catch { sentToday = 0; }
+  // Sebelumnya 'sending' ikut dihitung. Baris yang tersangkut di 'sending' (putaran mati di
+  // tengah jalan) lalu memakan kuota sepanjang hari tanpa terlihat di panel: panel menampilkan
+  // 20/40 sementara pembatas menganggap 40/40 dan berhenti menerbitkan.
+  try { sentToday = Number((await db.execute({sql: "SELECT count(*) n FROM hub_publish_outbox WHERE status='published' AND created_at>=?", args: [dayStart.toISOString()]})).rows[0].n); } catch { sentToday = 0; }
   const room = Math.max(0, cfg.maxPerDay - sentToday);
 
   // KEPUTUSAN PEMILIK: berita hiburan/infotainment TIDAK memakai jatah 60:40.
@@ -543,7 +547,7 @@ export async function runAutoEditor(db: Client, opts: RunOptions = {}) {
       // Nama kolom di dalam snapshot adalah 'editorialCategory' (bukan 'category').
       // Salah nama = hitungan selalu 0 = kuota hiburan terulang tiap putaran.
       sql: `SELECT count(*) n FROM hub_publish_outbox
-            WHERE status IN ('sending','published') AND created_at>=?
+            WHERE status='published' AND created_at>=?
               AND (json_extract(snapshot_json,'$.editorialCategory') IN (${FUN_CATEGORIES_LOCAL.map(() => '?').join(',')})
                 OR json_extract(snapshot_json,'$.category') IN (${FUN_CATEGORIES_LOCAL.map(() => '?').join(',')}))`,
       args: [dayStart.toISOString(), ...FUN_CATEGORIES_LOCAL, ...FUN_CATEGORIES_LOCAL],
@@ -726,14 +730,16 @@ export async function runAutoEditor(db: Client, opts: RunOptions = {}) {
     if (prefs.allowYoutube !== true) push('sync_youtube', true, 'Dilewati: akses YouTube belum diizinkan pemilik', 0);
     else {
       const {syncYoutube} = await import('./social');
-      const out: any = await syncYoutube(db);
+      const out: any = await syncYoutube(db, opts.master);
       const n = Number(out?.count || 0);
       push('sync_youtube', true, n ? `${n} video playlist YouTube ditarik` : 'Playlist YouTube tidak mengembalikan video', n);
     }
   } catch (e) {
     // Sama seperti tren: kegagalan YouTube tidak boleh menggagalkan penarikan berita.
     const msg = readable(e);
-    push('sync_youtube', false, /JOB_COOLDOWN/.test(msg) ? 'Feed YouTube baru saja ditarik — dilewati giliran ini' : `Feed YouTube gagal (${msg})`, 0);
+    push('sync_youtube', false, /JOB_COOLDOWN/.test(msg) ? 'Feed YouTube baru saja ditarik — dilewati giliran ini'
+      : /YOUTUBE_API_KEY_REQUIRED/.test(msg) ? 'Video belum bisa ditarik: robots.txt YouTube melarang feed RSS. Isi kunci YouTube Data API di pengaturan.'
+      : `Feed YouTube gagal (${msg})`, 0);
   }
 
   // 9. Tren X + YouTube ke beranda portal (hanya bila tujuan terbit tersambung).
