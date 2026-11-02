@@ -9,8 +9,16 @@ if (process.env.VERCEL === '1' && process.env.NODE_ENV === 'production' && /loca
   throw new Error('NEXT_PUBLIC_SITE_URL wajib diisi di produksi. Setel ke https://www.portal-hub.online (jangan biarkan localhost).');
 }
 
+/**
+ * Nama tampil situs. Huruf pertamanya SELALU dibesarkan supaya tab browser menulis
+ * "Portal-hub", bukan "portal-hub" — berlaku juga bila env NEXT_PUBLIC_SITE_NAME masih
+ * berisi huruf kecil semua, jadi tidak perlu mengubah apa pun di Vercel.
+ */
+const NAMA_MENTAH = (process.env.NEXT_PUBLIC_SITE_NAME || 'Portal-hub').trim();
+const NAMA_TAMPIL = NAMA_MENTAH ? NAMA_MENTAH.charAt(0).toUpperCase() + NAMA_MENTAH.slice(1) : 'Portal-hub';
+
 export const SITE = {
-  name: process.env.NEXT_PUBLIC_SITE_NAME || 'portal-hub',
+  name: NAMA_TAMPIL,
   url: RAW_URL,
   description: 'Rangkuman berita lokal terkini dari berbagai sumber terpercaya, lengkap dengan tautan ke artikel aslinya.',
   email: process.env.NEXT_PUBLIC_CONTACT_EMAIL || 'redaksi@portal-hub.online',

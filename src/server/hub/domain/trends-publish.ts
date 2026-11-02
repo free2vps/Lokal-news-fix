@@ -1,5 +1,5 @@
 import type {Client} from '@libsql/client';
-import {getX, getYoutube} from './social';
+import {getX, getGoogle, getYoutube} from './social';
 import {resolveDeliveryTarget} from './delivery-target';
 
 /**
@@ -22,10 +22,12 @@ export type TrendRow = {
   platform: string; kind: string; rank: number; source: string;
   title: string; url: string | null; metric: string; image_url: string | null; expires_at: string;
 };
-export type TrendsPublishResult = {x: number; youtube: number; total: number; target: string; removed: number};
+export type TrendsPublishResult = {x: number; youtube: number; google: number; total: number; target: string; removed: number};
 
 const X_PLATFORM = 'x_t24';
 const YT_PLATFORM = 'yt_feed';
+/** Baris `platform='google'` yang ditulis putaran ini. Nilainya sudah dipakai portal sejak lama. */
+const GOOGLE_PLATFORM = 'google';
 // Kolom `trending.source` di portal punya aturan: HANYA 'auto' atau 'manual'.
 // Nilai lain ditolak 400. Penulis tren milik portal sendiri juga memakai 'auto', jadi kita ikut.
 const TREND_SOURCE = 'auto';
@@ -37,13 +39,15 @@ function httpCode(status: number, body: string) {
 }
 
 export async function collectTrendRows(db: Client, master: string | undefined, now = Date.now()): Promise<TrendRow[]> {
-  const [x, yt] = await Promise.all([
+  const [x, yt, g] = await Promise.all([
     getX(db, master).catch(() => null),
     getYoutube(db, master).catch(() => null),
+    getGoogle(db).catch(() => null),
   ]);
   const rows: TrendRow[] = [];
   const xExpiry = new Date(now + 6 * 3600000).toISOString();
   const ytExpiry = new Date(now + 24 * 3600000).toISOString();
+  const gExpiry = new Date(now + 6 * 3600000).toISOString();
   const items = Array.isArray((x as {items?: unknown})?.items) ? (x as {items: {text?: string; rank?: number}[]}).items : [];
   items.forEach((item, index) => {
     const title = String(item?.text || '').trim();
@@ -70,6 +74,24 @@ export async function collectTrendRows(db: Client, master: string | undefined, n
       image_url: `https://i.ytimg.com/vi/${id}/hqdefault.jpg`, expires_at: ytExpiry,
     });
   });
+  // Tren Google. Sebelumnya TIDAK PERNAH dikirim: pengambilnya (`fetchGoogle` di
+  // src/lib/trending/adapters.ts) hanya dipanggil route /api/cron/trending yang sudah 503 dan
+  // tidak punya cron. Akibatnya baris google di portal membeku di tanggal cron lama mati,
+  // sehingga ticker "Topik trending" terus menampilkan topik yang sama.
+  const gItems = Array.isArray((g as {items?: unknown})?.items) ? (g as {items: {text?: string; rank?: number; traffic?: string | null; publishedAt?: string | null}[]}).items : [];
+  gItems.forEach((item, index) => {
+    const title = String(item?.text || '').trim();
+    if (!title) return;
+    const stamp = item?.publishedAt || (g as {observedAt?: string | null})?.observedAt;
+    const when = stamp ? new Date(stamp).toLocaleString('id-ID', {timeZone: 'Asia/Makassar'}) + ' WITA' : null;
+    rows.push({
+      platform: GOOGLE_PLATFORM, kind: 'topic', rank: Number(item?.rank) > 0 ? Number(item.rank) : index + 1,
+      source: TREND_SOURCE, title: title.slice(0, 300),
+      url: `https://www.google.com/search?q=${encodeURIComponent(title.slice(0, 120))}&tbm=nws`,
+      metric: ['Google Trends', item?.traffic ? item.traffic + ' pencarian' : null, when].filter(Boolean).join(' · '),
+      image_url: null, expires_at: gExpiry,
+    });
+  });
   return rows;
 }
 
@@ -82,7 +104,7 @@ export async function publishTrends(
   const target = resolveDeliveryTarget(env);
   if (target.source === 'none') throw Error('PUBLISH_TARGET_NOT_CONFIGURED');
   const rows = await collectTrendRows(db, opts.master, now);
-  if (!rows.length) return {x: 0, youtube: 0, total: 0, target: 'supabase_trending', removed: 0};
+  if (!rows.length) return {x: 0, youtube: 0, google: 0, total: 0, target: 'supabase_trending', removed: 0};
   const fetcher = opts.fetcher ?? fetch;
   const origin = new URL(target.url);
   if (origin.protocol !== 'https:') throw Error('PUBLISH_TARGET_INVALID');
@@ -110,7 +132,7 @@ export async function publishTrends(
   let removed = 0;
   const ids = inserted.map(i => String(i.id)).filter(id => /^\d+$/.test(id));
   if (ids.length) {
-    for (const platform of [X_PLATFORM, YT_PLATFORM]) {
+    for (const platform of [X_PLATFORM, YT_PLATFORM, GOOGLE_PLATFORM]) {
       if (!rows.some(row => row.platform === platform)) continue;
       const q = `/rest/v1/trending?source=eq.${TREND_SOURCE}&platform=eq.${platform}&id=not.in.(${ids.join(',')})`;
       try {
@@ -128,6 +150,7 @@ export async function publishTrends(
   return {
     x: rows.filter(row => row.platform === X_PLATFORM).length,
     youtube: rows.filter(row => row.platform === YT_PLATFORM).length,
+    google: rows.filter(row => row.platform === GOOGLE_PLATFORM).length,
     total: rows.length, target: 'supabase_trending', removed,
   };
 }

@@ -57,6 +57,10 @@ async function trendsFixture() {
     sourceSnapshotAt: now, observedAt: now, origin: 'live', selectionLabel: '1 hour ago', freshnessStatus: 'FRESH'}), now]});
   await db.execute({sql: "INSERT INTO hub_datasets_v3(kind,body,observed_at) VALUES('youtube',?,?)", args: [JSON.stringify({
     items: [{videoId: 'dQw4w9WgXcQ', title: 'Lagu Populer', channel: 'Musik ID'}], observedAt: now, origin: 'live'}), now]});
+  await db.execute({sql: "INSERT INTO hub_datasets_v3(kind,body,observed_at) VALUES('google',?,?)", args: [JSON.stringify({
+    items: [{text: 'tenerife vs fc andorra', rank: 1, traffic: '200+', publishedAt: now},
+            {text: 'harga beras naik', rank: 2, traffic: '100+', publishedAt: now}],
+    sourceUrl: 'https://trends.google.com/trending/rss?geo=ID', observedAt: now, origin: 'google_rss'}), now]});
   const close = db.close.bind(db);
   (db as any).close = async (...a: any[]) => { await (close as any)(...a); try { rmSync(dir, {recursive: true, force: true}); } catch {} };
   return {db, now};
@@ -65,7 +69,7 @@ async function trendsFixture() {
 test('tren Hub diubah menjadi baris tabel trending portal', async () => {
   const {db, now} = await trendsFixture();
   const rows = await collectTrendRows(db, undefined, Date.parse(now));
-  assert.equal(rows.length, 3);
+  assert.equal(rows.length, 5, 'X 2 + YouTube 1 + Google 2');
   const x = rows.filter(r => r.platform === 'x_t24');
   assert.equal(x.length, 2);
   // Portal memberi `trending.id` nilai sendiri (GENERATED ALWAYS AS IDENTITY), jadi kitа TIDAK
@@ -78,6 +82,12 @@ test('tren Hub diubah menjadi baris tabel trending portal', async () => {
   const yt = rows.filter(r => r.platform === 'yt_feed');
   assert.equal(yt.length, 1);
   assert.match(String(yt[0].image_url), /i\.ytimg\.com/);
+  // Tren Google WAJIB ikut: sebelumnya tidak pernah dikirim, sehingga topiknya membeku.
+  const g = rows.filter(r => r.platform === 'google');
+  assert.equal(g.length, 2, 'tren Google ikut dikirim ke portal');
+  assert.equal(g[0].title, 'tenerife vs fc andorra');
+  assert.match(String(g[0].url), /^https:\/\/www\.google\.com\/search\?q=/);
+  assert.match(String(g[0].metric), /Google Trends/);
   await db.close();
 });
 
@@ -94,22 +104,25 @@ test('tren dikirim tanpa id, lalu baris lama dibersihkan memakai id dari server'
   }) as unknown as typeof fetch;
   const env = {NEXT_PUBLIC_SUPABASE_URL: 'https://site.supabase.co', SUPABASE_SERVICE_ROLE_KEY: 'site-key'} as unknown as NodeJS.ProcessEnv;
   const out = await publishTrends(db, {now: Date.parse(now), fetcher, env});
-  assert.equal(out.total, 3);
+  assert.equal(out.total, 5);
   assert.equal(out.x, 2);
   assert.equal(out.youtube, 1);
+  assert.equal(out.google, 2);
   const post = seen.find(s => s.method === 'POST')!;
   assert.ok(post.url.startsWith('https://site.supabase.co/rest/v1/trending'));
   assert.equal(post.key, 'site-key');
-  assert.equal(post.body.length, 3);
+  assert.equal(post.body.length, 5);
   assert.ok(post.body.every(r => !('id' in r)), 'tidak ada id dalam payload');
   const dels = seen.filter(s => s.method === 'DELETE');
-  assert.equal(dels.length, 2, 'pembersihan hanya untuk platform yang benar-benar ditulis');
+  assert.equal(dels.length, 3, 'pembersihan hanya untuk platform yang benar-benar ditulis');
   assert.ok(dels.every(d => /source=eq\.auto/.test(d.url)), 'memakai nilai yang diizinkan skema');
-  assert.ok(dels.every(d => /id=not\.in\.\(900,901,902\)/.test(d.url)));
+  assert.ok(dels.every(d => /id=not\.in\.\(900,901,902,903,904\)/.test(d.url)));
   assert.ok(dels.some(d => /platform=eq\.x_t24/.test(d.url)));
   assert.ok(dels.some(d => /platform=eq\.yt_feed/.test(d.url)));
-  assert.ok(dels.every(d => !/platform=eq\.google/.test(d.url)), 'baris Google tidak boleh tersentuh');
-  assert.equal(out.removed, 4);
+  // Baris Google kini IKUT dibersihkan — justru ini inti perbaikan: baris google lama
+  // (sisa cron yang sudah mati) tidak pernah terhapus, jadi topiknya membeku selamanya.
+  assert.ok(dels.some(d => /platform=eq\.google/.test(d.url)), 'baris google lama harus diganti');
+  assert.equal(out.removed, 6);
   await db.close();
 });
 

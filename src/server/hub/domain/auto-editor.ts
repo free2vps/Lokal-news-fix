@@ -709,10 +709,23 @@ export async function runAutoEditor(db: Client, opts: RunOptions = {}) {
     const prefs = await getPreferences(db);
     if (prefs.allowX !== true) push('sync_trend', true, 'Dilewati: akses X belum diizinkan pemilik', 0);
     else {
-      const {syncX} = await import('./social');
+      const {syncX, syncGoogle} = await import('./social');
       const value: any = await syncX(db);
       const n = Number(value?.items?.length || 0);
-      push('sync_trend', true, n ? `${n} tren X terbaru ditarik` : 'Sumber tren X tidak mengembalikan daftar', n);
+      // Tren Google Indonesia (RSS resmi). Dulu pengambilnya hanya ada di route /api/cron/trending
+      // yang sudah 503 dan tidak dijadwalkan, sehingga topik Google membeku berhari-hari.
+      let gCount = 0, gNote = '';
+      try {
+        const g: any = await syncGoogle(db);
+        gCount = Number(g?.count || 0);
+        gNote = gCount ? ` + ${gCount} tren Google` : '';
+      } catch (e) {
+        gNote = '';
+        push('sync_google', false, /JOB_COOLDOWN/.test(readable(e)) ? 'Tren Google baru saja ditarik — dilewati giliran ini'
+          : `Tren Google gagal ditarik (${readable(e)})`, 0);
+      }
+      if (gCount) push('sync_google', true, `${gCount} tren Google terbaru ditarik`, gCount);
+      push('sync_trend', true, n ? `${n} tren X terbaru ditarik${gNote}` : `Sumber tren X tidak mengembalikan daftar${gNote}`, n);
     }
   } catch (e) {
     // Kegagalan tren TIDAK boleh menggagalkan penarikan berita — cukup dicatat apa adanya.
@@ -748,7 +761,7 @@ export async function runAutoEditor(db: Client, opts: RunOptions = {}) {
     if (!targetConfigured()) push('trends', true, 'Dilewati: tujuan terbit belum tersambung', 0);
     else {
       const out = await publishTrends(db, {master: opts.master, now});
-      push('trends', true, out.total ? `${out.x} tren X + ${out.youtube} video dikirim ke beranda` : 'Belum ada snapshot tren untuk dikirim', out.total);
+      push('trends', true, out.total ? `${out.x} tren X + ${out.google} tren Google + ${out.youtube} video dikirim ke beranda` : 'Belum ada snapshot tren untuk dikirim', out.total);
     }
   } catch (e) {
     // JANGAN membuang huruf/isi pesan: sebelumnya `.replace(/[^A-Z0-9_]/g,'')` mengubah

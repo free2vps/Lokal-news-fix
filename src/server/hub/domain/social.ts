@@ -28,6 +28,50 @@ export function parseX(html:string){
  return {items,sourceUrl:X_URL,selectionLabel:method==='explicit_label'?'1 hour ago':'Sekitar satu jam sebelum snapshot terbaru',selectionMethod:method,snapshotGapSeconds:Math.round((latest-candidate.t)*1000)/1000,sourceSnapshotAt:new Date(candidate.t*1000).toISOString(),sourceLatestAt:new Date(latest*1000).toISOString()};
 }
 export async function syncX(db:Client){return runJob(db,'x',async()=>{await checkRobots(X_URL,['trends24.in']);const parsed=parseX(await publicFetch(X_URL,1500000,['trends24.in']));const value={...parsed,observedAt:new Date().toISOString(),origin:'manual_sync'};await storeDataset(db,'x',value);return {value,count:parsed.items.length};});}
+/**
+ * GOOGLE TRENDS — dulu mati total.
+ *
+ * Riwayat: pengambil tren Google ada di `src/lib/trending/adapters.ts` (`fetchGoogle`) dan
+ * dipanggil oleh `runTrending()` lewat `/api/cron/trending`. Keduanya sudah tidak dipakai lagi:
+ * route itu sekarang selalu menjawab 503 "dinonaktifkan", `vercel.json` tidak punya cron, dan
+ * putaran otomatis (auto-editor) hanya menarik X + YouTube. Akibatnya baris `platform='google'`
+ * di portal MEMBEKU di tanggal terakhir cron lama hidup — ticker "Topik trending" terus
+ * menampilkan topik yang sama berhari-hari.
+ *
+ * Sekarang: RSS resmi Google Trends Indonesia (bukan scraping; robots.txt hanya melarang
+ * `/explore?`) ditarik di putaran yang sama dengan X dan YouTube.
+ */
+export const GOOGLE_URL='https://trends.google.com/trending/rss?geo=ID';
+export function parseGoogle(xml:string){
+ const parser=new Parser({customFields:{item:['ht:approx_traffic','ht:picture']}});
+ return parser.parseString(xml).then(feed=>{
+  const seen=new Set<string>(),items:{text:string;rank:number;traffic:string|null;publishedAt:string|null}[]=[];
+  for(const i of feed.items||[]){
+   const text=String(i.title||'').replace(/\s+/g,' ').trim();
+   const key=text.normalize('NFKC').toLowerCase();
+   if(!text||text.length>200||seen.has(key))continue;
+   seen.add(key);
+   const traffic=String((i as any)['ht:approx_traffic']||'').trim()||null;
+   let publishedAt:string|null=null;
+   try{publishedAt=i.isoDate?new Date(i.isoDate).toISOString():null;}catch{publishedAt=null;}
+   items.push({text,rank:items.length+1,traffic,publishedAt});
+   if(items.length>=25)break;
+  }
+  return {items,sourceUrl:GOOGLE_URL,geo:'ID',title:feed.title||null};
+ });
+}
+export async function syncGoogle(db:Client){return runJob(db,'google',async()=>{
+  const parsed=await parseGoogle(await publicFetch(GOOGLE_URL,1500000,['trends.google.com']));
+  if(!parsed.items.length)throw Error('GOOGLE_TRENDS_UNAVAILABLE');
+  const value={...parsed,observedAt:new Date().toISOString(),origin:'google_rss'};
+  await storeDataset(db,'google',value);
+  return {value,count:parsed.items.length};
+});}
+export async function getGoogle(db:Client){
+  const live=await dataset(db,'google') as any;
+  if(live)return {...live,stale:Date.now()-Date.parse(live.observedAt)>7200000};
+  return {items:[],sourceUrl:GOOGLE_URL,origin:'none',observedAt:null,stale:true};
+}
 export async function getX(db:Client,master:string|undefined){
  const live=await dataset(db,'x');if(live)return {...live,stale:Date.now()-Date.parse(live.observedAt)>7200000||Date.now()-Date.parse(live.sourceSnapshotAt)>10800000};
  const snaps=await readArchive(db,'x_trend_snapshots',master),all=await readArchive(db,'x_trend_items',master);

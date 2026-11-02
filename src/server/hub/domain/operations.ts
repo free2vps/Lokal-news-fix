@@ -78,7 +78,7 @@ export async function runJob<T>(db:Client,kind:string,work:()=>Promise<{value:T;
   // Jangan buang sebab aslinya. Dulu semua kegagalan diubah menjadi 'SYNC_FAILED' saja, sehingga
   // "kenapa" hilang dan perbaikan menjadi menebak. Sekarang penyebab ikut dibawa (dipotong 180 huruf).
   const raw=e instanceof Error?e.message:String(e??'');
-  const known=/^(HTTP_\d{3}|ROBOTS_UNAVAILABLE|ROBOTS_BLOCKED|NETWORK_BLOCKED|NETWORK_TIMEOUT|RESPONSE_TOO_LARGE|X_ONE_HOUR_UNAVAILABLE|PLAYLIST_UNAVAILABLE|RSS_INVALID|SOURCE_NOT_READY|LISTING_EMPTY|LISTING_NOT_HTML)$/.test(raw);
+  const known=/^(HTTP_\d{3}|ROBOTS_UNAVAILABLE|ROBOTS_BLOCKED|NETWORK_BLOCKED|NETWORK_TIMEOUT|RESPONSE_TOO_LARGE|X_ONE_HOUR_UNAVAILABLE|PLAYLIST_UNAVAILABLE|GOOGLE_TRENDS_UNAVAILABLE|RSS_INVALID|SOURCE_NOT_READY|LISTING_EMPTY|LISTING_NOT_HTML)$/.test(raw);
   const message=(known?raw:'SYNC_FAILED')+(known?'':' — '+(raw.replace(/\s+/g,' ').slice(0,180)||'tanpa keterangan'));
   await db.execute({sql:"UPDATE hub_logs_v3 SET status='ERROR',finished_at=?,message=? WHERE id=?",args:[new Date().toISOString(),message.slice(0,240),id]});
   throw Error(message);

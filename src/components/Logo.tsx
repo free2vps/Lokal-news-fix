@@ -13,7 +13,7 @@ import { useState } from 'react';
  * dimuat (berkas belum ada / nama salah), barulah kotak huruf ditampilkan lewat `onError`.
  * Hasilnya sama di build, di serverless, dan di komputer sendiri.
  */
-export default function Logo({ size = 40, name = 'portal-hub', file }: { size?: number; name?: string; file?: string }) {
+export default function Logo({ size = 40, name = 'Portal-hub', file }: { size?: number; name?: string; file?: string }) {
   const src = `/${file || process.env.NEXT_PUBLIC_SITE_LOGO || 'logo.png'}`.replace(/^\/+/, '/');
   const [gagal, setGagal] = useState(false);
   const huruf = (name || '?').trim().charAt(0).toUpperCase() || '?';
