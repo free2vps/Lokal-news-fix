@@ -4,8 +4,8 @@ import type { Article } from '@/lib/types';
 import { appendUniqueArticles, feedIsExhausted, validFeedResponse } from '@/lib/feed-pagination';
 import FeedRow from './FeedRow';
 
-export default function LoadMoreFeed({ skipNews, skipFun, initialDone = false, initialIds = [] }: {
-  skipNews: number; skipFun: number; initialDone?: boolean; initialIds?: number[];
+export default function LoadMoreFeed({ skipNews, skipFun, hours = 36, initialDone = false, initialIds = [] }: {
+  skipNews: number; skipFun: number; hours?: number; initialDone?: boolean; initialIds?: number[];
 }) {
   const [items, setItems] = useState<Article[]>([]);
   const [page, setPage] = useState(1);
@@ -16,7 +16,7 @@ export default function LoadMoreFeed({ skipNews, skipFun, initialDone = false, i
     if (busy || done) return;
     setBusy(true); setError('');
     try {
-      const response = await fetch(`/api/feed?page=${page}&n=${skipNews}&f=${skipFun}`);
+      const response = await fetch(`/api/feed?page=${page}&n=${skipNews}&f=${skipFun}&h=${hours}`);
       if (!response.ok) throw Error('Feed gagal');
       const data: unknown = await response.json();
       if (!validFeedResponse(data)) throw Error('Feed tidak valid');

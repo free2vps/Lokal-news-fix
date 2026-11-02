@@ -31,30 +31,34 @@ const editorialSnapshot=unstable_cache(async():Promise<Article[]>=>{
 },['hub-editorial-snapshot'],{revalidate:120,tags:[TAG_ARTICLES]});
 const editorialArticles=requestCache(()=>editorialSnapshot());
 
-const latestPublishedCached = unstable_cache(async (limit:number, offset:number, category:string|null, section:string|null) => {
+const latestPublishedCached = unstable_cache(async (limit:number, offset:number, category:string|null, section:string|null, sinceHours:number|null) => {
   let q = supabase().from('articles').select(LIST).order('published_at', { ascending: false }).range(offset, offset + limit - 1);
   if (category) q = q.eq('category', category);
   if (section) q = q.eq('section', section);
+  // Batas kesegaran dilakukan di database, bukan setelah data diambil: kalau disaring belakangan,
+  // halaman akan kosong walau masih ada berita segar di luar jendela yang terambil.
+  if (sinceHours && sinceHours > 0) q = q.gte('published_at', new Date(Date.now() - sinceHours * 3600_000).toISOString());
   const { data } = await q;
   return (data ?? []) as Article[];
 }, ['latest-published'], { revalidate: 300, tags: [TAG_ARTICLES] });
 
-async function latestPublished({limit=12,offset=0,category,section}:{limit?:number;offset?:number;category?:string;section?:string}){
-  return latestPublishedCached(limit, offset, category ?? null, section ?? null);
+async function latestPublished({limit=12,offset=0,category,section,sinceHours}:{limit?:number;offset?:number;category?:string;section?:string;sinceHours?:number}){
+  return latestPublishedCached(limit, offset, category ?? null, section ?? null, sinceHours ?? null);
 }
 
-export async function getLatest({ limit = 12, offset = 0, category, section }: { limit?: number; offset?: number; category?: string; section?: string }) {
+export async function getLatest({ limit = 12, offset = 0, category, section, sinceHours }: { limit?: number; offset?: number; category?: string; section?: string; sinceHours?: number }) {
   if(hubEnabled()){
     let rows=await editorialArticles();
     if(category)rows=rows.filter(a=>a.category===category);
     if(section)rows=rows.filter(a=>a.section===section);
+    if(sinceHours&&sinceHours>0)rows=withinHours(rows,sinceHours);
     // Snapshot Hub bisa kosong/kedaluwarsa (mis. tidak ada item dalam 72 jam terakhir).
     // Isi sisa slot dari artikel yang benar-benar terbit di database situs, tanpa mengarang data.
     const need=Math.max(0,offset)+limit;
-    const latest=needsLatestFill(rows,need)?await latestPublished({limit:need,category,section}).catch(()=>[]):[];
+    const latest=needsLatestFill(rows,need)?await latestPublished({limit:need,category,section,sinceHours}).catch(()=>[]):[];
     return mergeFeed(rows,latest,limit,offset);
   }
-  return latestPublished({limit,offset,category,section});
+  return latestPublished({limit,offset,category,section,sinceHours});
 }
 const bySlugCached = unstable_cache(async (slug: string) => {
   const { data } = await supabase().from('articles').select(DETAIL).eq('slug', slug).maybeSingle();
@@ -96,6 +100,44 @@ export async function getSitemapRows() {
   return sitemapRowsCached();
 }
 
+/**
+ * Urutkan daftar berita dari yang PALING BARU ke paling lama, dan buang duplikat.
+ * Dipakai bagian "Berita terbaru" di beranda.
+ *
+ * Kenapa perlu: `getMixedPage` menyelang-seling berita/hiburan dengan pola tetap (N,N,H,N,H…)
+ * tanpa melihat waktu terbit. Ditempel setelah sisa berita yang sudah urut, hasilnya campur:
+ * berita 19 jam bisa berada di atas berita 2 jam. Untuk daftar berlabel "terbaru", waktu
+ * terbit harus menjadi urutan utama.
+ */
+/** Saring artikel agar hanya yang terbit dalam `hours` jam terakhir. */
+export function withinHours(list: Article[], hours: number): Article[] {
+  const batas = Date.now() - hours * 3600_000;
+  return list.filter((a) => {
+    const t = Date.parse(a.published_at || '');
+    return Number.isFinite(t) && t >= batas;
+  });
+}
+
+export function sortByNewest(list: Article[]): Article[] {
+  const terlihat = new Set<number | string>();
+  return [...list]
+    .filter((a) => {
+      const kunci = a.id ?? a.slug;
+      if (terlihat.has(kunci)) return false;
+      terlihat.add(kunci);
+      return true;
+    })
+    .sort((a, b) => {
+      const ta = Date.parse(a.published_at || '');
+      const tb = Date.parse(b.published_at || '');
+      // Tanggal tidak terbaca ditaruh paling bawah, bukan dianggap tahun 1970.
+      if (!Number.isFinite(ta) && !Number.isFinite(tb)) return 0;
+      if (!Number.isFinite(ta)) return 1;
+      if (!Number.isFinite(tb)) return -1;
+      return tb - ta;
+    });
+}
+
 /** Hanya berita 48 jam terakhir — bahan sitemap berita Google News dan RSS. */
 const recentRowsCached = unstable_cache(async (hours: number, limit: number) => {
   const since = new Date(Date.now() - hours * 3600_000).toISOString();
@@ -131,10 +173,11 @@ export async function getTrending(): Promise<Trend[]> {
 }
 
 /** Halaman feed campuran: 6 berita + 4 hiburan per halaman (komposisi 60/40), diselang-seling. */
-export async function getMixedPage(page: number, skip = { news: 0, fun: 0 }) {
+export async function getMixedPage(page: number, skip = { news: 0, fun: 0 }, opts: { sinceHours?: number } = {}) {
+  const sinceHours = opts.sinceHours;
   const [n, f] = await Promise.all([
-    getLatest({ limit: 6, offset: skip.news + page * 6, section: 'berita' }),
-    getLatest({ limit: 4, offset: skip.fun + page * 4, section: 'hiburan' }),
+    getLatest({ limit: 6, offset: skip.news + page * 6, section: 'berita', sinceHours }),
+    getLatest({ limit: 4, offset: skip.fun + page * 4, section: 'hiburan', sinceHours }),
   ]);
   const out: Article[] = [];
   let i = 0, j = 0;

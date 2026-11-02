@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { getLatest, getTrending, getMixedPage, getActiveRegions } from '@/lib/queries';
+import { getLatest, getTrending, getMixedPage, getActiveRegions, sortByNewest, withinHours } from '@/lib/queries';
 import { slugify } from '@/lib/utils';
 import { isJobPosting } from '@/lib/quality';
 import { SITE } from '@/config/site';
@@ -88,7 +88,12 @@ export default async function Home() {
   }
   const shown = new Set([...slides, ...trio].map((a) => a.id));
   const leftovers = pool.filter((a) => !shown.has(a.id));
-  const feed = await getMixedPage(0, { news: news.length, fun: fun.length });
+  // Keputusan pemilik: berita di bagian "Berita terbaru" maksimal berumur 36 jam.
+  // Lebih tua dari itu tidak ditampilkan, walau kategori masih beragam.
+  const FEED_HOURS = 36;
+  const feed = await getMixedPage(0, { news: news.length, fun: fun.length }, { sinceHours: FEED_HOURS });
+  // Urut waktu terbit (paling baru di atas), lalu saring 36 jam. Kategori boleh berulang.
+  const terbaru = withinHours(sortByNewest([...leftovers, ...feed]), FEED_HOURS);
 
   const posts = trending.some((t) => t.kind === 'post');
   const rightTop = adOn('sidebar') || posts;
@@ -126,8 +131,14 @@ export default async function Home() {
         <aside className="hidden lg:block"><div className="sticky top-32"><ExploreMore regions={regions} /></div></aside>
         <section aria-labelledby="terbaru" className="min-w-0 rounded-2xl border border-line/70 bg-surface p-4 sm:p-5">
           <h2 id="terbaru" className="mb-4 text-2xl font-bold">Berita terbaru</h2>
-          {[...leftovers, ...feed].map((a) => <FeedRow key={a.id} a={a} />)}
-          <LoadMoreFeed skipNews={news.length} skipFun={fun.length} initialDone={feed.length === 0} initialIds={[...pool, ...feed].map(a => a.id)} />
+          {terbaru.map((a) => <FeedRow key={a.id} a={a} />)}
+          {terbaru.length === 0 && (
+            <p className="py-6 text-sm text-muted">
+              Belum ada berita terbit dalam {FEED_HOURS} jam terakhir. Berita baru muncul otomatis
+              pada pembaruan berikutnya.
+            </p>
+          )}
+          <LoadMoreFeed skipNews={news.length} skipFun={fun.length} hours={FEED_HOURS} initialDone={feed.length === 0} initialIds={[...pool, ...feed].map(a => a.id)} />
         </section>
         {rightBottom && <aside className="hidden lg:block"><div className="sticky top-32"><AdSlot slot="sidebar2" /></div></aside>}
       </div>
