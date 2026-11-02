@@ -4,7 +4,7 @@ import {createClient} from '@libsql/client';
 import {readFileSync, mkdtempSync, rmSync} from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import {prepareSocialSchema, enqueuePublished, claimBatch, acknowledge, socialStatus, SOCIAL_POLICY} from '../src/server/hub/domain/social-pull';
+import {prepareSocialSchema, enqueuePublished, claimBatch, acknowledge, socialStatus, siteBase, SOCIAL_POLICY} from '../src/server/hub/domain/social-pull';
 
 /**
  * Masalah yang dijaga tes ini:
@@ -168,5 +168,44 @@ test('gambar TIDAK dikirim bila hak sumber belum dinyatakan', async () => {
     await enqueuePublished(db, now);
     const out = await claimBatch(db, {max: 1, label: 'make', now, env: {} as any});
     assert.equal(out.items[0].image, null, 'tanpa hak, gambar tidak boleh dipakai');
+  } finally { await db.close(); }
+});
+
+test('tautan memakai domain portal sendiri, bukan situs sumber', async () => {
+  const db = await fixture();
+  try {
+    const now = Date.now();
+    await terbitkan(db, 1, now - 3600000);
+    await enqueuePublished(db, now);
+    const out = await claimBatch(db, {max: 1, label: 'make', now, env: {NEXT_PUBLIC_SITE_URL: 'https://portal-hub.example'} as any});
+    assert.equal(out.linkTarget, 'site');
+    assert.equal(out.siteUrl, 'https://portal-hub.example');
+    assert.match(String(out.items[0].articleUrl), /^https:\/\/portal-hub\.example\/berita\//);
+    assert.equal(out.items[0].articleUrlSource, 'site');
+    assert.equal(out.items[0].sourceUrl, 'https://satu.example.org/1', 'tautan asli tetap tersedia terpisah');
+  } finally { await db.close(); }
+});
+
+test('HUB_PUBLIC_SITE_URL didahulukan, lalu NEXT_PUBLIC_SITE_URL, lalu domain Vercel', () => {
+  assert.equal(siteBase({HUB_PUBLIC_SITE_URL: 'https://utama.example', NEXT_PUBLIC_SITE_URL: 'https://cadangan.example'} as any), 'https://utama.example');
+  // Kasus nyata di Vercel: HUB_PUBLIC_SITE_URL tidak diisi sama sekali.
+  assert.equal(siteBase({NEXT_PUBLIC_SITE_URL: 'https://lokal-news-fix-ujsf.vercel.app'} as any), 'https://lokal-news-fix-ujsf.vercel.app');
+  assert.equal(siteBase({VERCEL_PROJECT_PRODUCTION_URL: 'portal.vercel.app'} as any), 'https://portal.vercel.app');
+  assert.equal(siteBase({} as any), null);
+  // Alamat tidak sah tidak boleh dipakai.
+  assert.equal(siteBase({NEXT_PUBLIC_SITE_URL: 'http://tidak-aman.example'} as any), null, 'http biasa ditolak');
+  assert.equal(siteBase({NEXT_PUBLIC_SITE_URL: 'https://user:sandi@contoh.example'} as any), null, 'kredensial di URL ditolak');
+});
+
+test('tanpa alamat portal sama sekali, sistem jujur menyebut tautan jatuh ke sumber', async () => {
+  const db = await fixture();
+  try {
+    const now = Date.now();
+    await terbitkan(db, 1, now - 3600000);
+    await enqueuePublished(db, now);
+    const out = await claimBatch(db, {max: 1, label: 'make', now, env: {} as any});
+    assert.equal(out.linkTarget, 'original');
+    assert.equal(out.siteUrl, null);
+    assert.equal(out.items[0].articleUrl, 'https://satu.example.org/1');
   } finally { await db.close(); }
 });

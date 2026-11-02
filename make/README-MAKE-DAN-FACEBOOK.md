@@ -57,17 +57,31 @@ tapi **jangan dipakai** kalau ada sumber yang sengaja Anda turunkan ke `metadata
 
 Berkas: **`make/skenario-facebook-hemat-kuota.blueprint.json`**
 
-1. Make → **Scenarios** → **Import blueprint** → pilih berkas itu
-2. Setelah terbuka, ganti dua hal:
-   - `GANTI_TOKEN_SOSIAL` → token dari Langkah 1 (ada di 2 tempat: modul 1 dan modul 4)
-   - `PILIH_HALAMAN_FACEBOOK_ANDA` → sambungkan akun Facebook Anda, lalu pilih halaman
-3. Nyalakan skenario
+1. Make → **Scenarios** → **Import blueprint** → tempel/pilih berkas itu
+2. Klik modul **nomor 3 (Facebook Pages)** → **Add connection** → login Facebook → **pilih halaman Anda**
+3. Isi token: ganti `GANTI_TOKEN_SOSIAL` di **modul 1 dan modul 4**
+4. **Run once** untuk menguji
 
-### Jadwal
+### Kalau muncul "Module not found"
 
-Bawaan: **tiap 180 menit** (3 jam). Bisa diubah di **Run scenario → At regular intervals**.
+Itu terjadi kalau nama/versi modul tidak dikenal Make. Berkas ini sudah memakai nama yang
+**terverifikasi dari blueprint asli buatan Make**:
 
----
+| Modul | Nama internal | Versi |
+|---|---|---|
+| HTTP (ambil & lapor) | `http:ActionSendData` | 3 |
+| Iterator | `builtin:BasicFeeder` | 1 |
+| Facebook Pages — Create a Post | `facebook-pages:CreatePost` | 6 |
+
+Ejaan harus **persis**: `CreatePost`, bukan `createPost`; versi **6**, bukan 1.
+Kalau versi 6 ditolak di kemudian hari (Make memperbarui modul), buka modul Facebook dari
+panel kanan → **Export blueprint** dari skenario lain yang berhasil, lihat angka versinya.
+
+### Setelan penting yang tidak ikut terimpor
+
+- **Jadwal**: 180 menit (3 jam). Ubah di *Run scenario → At regular intervals*.
+- **Zona waktu organisasi**: Asia/Makassar.
+- **Koneksi Facebook**: harus dipilih manual, koneksi tidak pernah ikut dalam berkas.
 
 ## Aturan pemilihan berita yang diposting
 
@@ -178,6 +192,93 @@ Dalam keadaan itu Facebook tetap menampilkan gambar, diambil otomatis dari `og:i
 halaman artikel Anda. Jadi tidak perlu tindakan tambahan.
 
 
+## Enam kesalahan yang mudah terjadi (dari blueprint buatan tangan)
+
+Blueprint yang diekspor dari Make terbukti memakai aturan berikut. Ini daftar kesalahan
+yang benar-benar ditemukan, lengkap dengan gejalanya:
+
+| # | Kesalahan | Gejala yang muncul |
+|---|---|---|
+| 1 | URL modul 1 hanya `https://situs-anda/` (halaman depan) | Antrean tidak pernah terbaca; `items` kosong |
+| 2 | Tidak ada header `Authorization` | Balasan `401 Token tidak valid` |
+| 3 | **Parse response** dimatikan | Respons jadi teks mentah, tidak bisa diambil `items` |
+| 4 | Array iterator ditaruh di `parameters`, bukan `mapper` | Iterator kosong → tidak ada yang diposting |
+| 5 | `page_id` diisi, tapi **caption & tautan kosong** | Terbit postingan kosong tanpa teks |
+| 6 | Modul terakhir membuka halaman depan, bukan `action=ack` | Berita tetap `claimed`, 6 jam kemudian jadi **basi** dan hilang |
+
+### Aturan struktur yang wajib diikuti
+
+- **Semua isian modul ada di `mapper`.** `parameters` hanya untuk setelan modul
+  (`handleErrors`, `__IMTCONN__`).
+- **Modul disambung lewat urutan** di dalam `flow`. Tidak ada kunci `next`.
+- Iterator (`builtin:BasicFeeder` v1) mengambil array dari `mapper.array`.
+- Modul HTTP yang menangkap JSON harus **Parse response = Yes**, lalu datanya ada di `data`.
+
+### Satu hal untuk dicek setelah Run once
+
+Kalau modul 2 (Iterator) melaporkan array kosong padahal modul 1 jelas menerima berita,
+klik modul 1 → lihat **Output**, cari nama wadahnya. Kalau isinya ada di `body` (bukan `data`),
+ubah mapping Iterator menjadi `{{1.body.items}}`. Ini perbedaan versi Make, bukan kesalahan lain.
+
+
+## Kalau muncul 401 "Silakan masuk sebagai administrator"
+
+Pesan itu **bukan** galat token — itu galat sesi login. Artinya permintaan Make tidak
+dikenali sebagai permintaan otomatis.
+
+Penyebab yang pernah terjadi (dan sudah diperbaiki di r46): rute `pull` hanya menerima
+metode **POST**, padahal skenario Make memakai **GET**. Permintaan GET jatuh ke pemeriksaan
+sesi admin lalu ditolak.
+
+Yang benar sekarang: **GET maupun POST dengan header `Authorization: Bearer …`** sama-sama
+dilayani tanpa sesi.
+
+Kalau masih muncul setelah r46 terpasang, periksa berurutan:
+
+| Cek | Yang benar |
+|---|---|
+| Header modul 1 | Ada `Authorization` = `Bearer <token>` (huruf `Bearer` dan satu spasi) |
+| Token | Belum dicabut — lihat daftar token di panel Lanjutan |
+| Pesan galat | Harus berbunyi **"Token tidak valid atau sudah dicabut"**, bukan soal login |
+
+### Token bocor
+
+Token Make bersifat **kata sandi**. Kalau pernah tertempel di chat, tangkapan layar,
+atau dikirim ke siapa pun — **cabut sekarang** (tombol **Cabut** di panel Lanjutan),
+lalu buat token baru. Token lama tidak bisa "diamankan" kembali.
+
+
+## Kalau tautan yang diposting mengarah ke situs sumber, bukan portal
+
+Tautan portal dibentuk dari alamat situs Anda. Urutan pembacaannya:
+
+1. `HUB_PUBLIC_SITE_URL` — paling diutamakan
+2. `NEXT_PUBLIC_SITE_URL` — biasanya sudah terisi di Vercel
+3. `VERCEL_PROJECT_PRODUCTION_URL` — otomatis disediakan Vercel
+4. `VERCEL_URL` — cadangan terakhir
+
+Sebelum r47 kode **hanya** membaca nomor 1. Variabel itu belum diisi, sehingga sistem tidak
+tahu alamat portal dan memakai tautan situs sumber. Sekarang urutan di atas membuat tautan
+portal bekerja **tanpa mengisi variabel baru**.
+
+### Cara memastikan sudah benar
+
+Setelah r47 terpasang, jalankan satu putaran Make lalu lihat **modul 1 → Output**:
+
+| Field | Arti |
+|---|---|
+| `linkTarget: "site"` | ✅ tautan ke portal sendiri |
+| `linkTarget: "original"` | ⚠️ alamat portal tidak terbaca — periksa `NEXT_PUBLIC_SITE_URL` |
+| `siteUrl` | alamat yang dipakai sistem |
+| `items[].articleUrl` | tautan yang diposting |
+| `items[].sourceUrl` | tautan situs asli (tetap dikirim, terpisah) |
+
+### Saat pindah ke portal-hub.online
+
+Tambahkan variabel `HUB_PUBLIC_SITE_URL = https://www.portal-hub.online` di Vercel
+(Production). Variabel itu didahulukan, jadi tautan langsung berpindah tanpa mengubah kode.
+
+
 ## Cara memastikan berhasil
 
 Setelah skenario berjalan, jalankan sekali secara manual (**Run once**), lalu periksa:
@@ -197,9 +298,10 @@ Setelah skenario berjalan, jalankan sekali secara manual (**Run once**), lalu pe
 | `401 Token tidak valid atau sudah dicabut` | Token salah, atau sudah dicabut. Buat token baru. |
 | `403 Penarikan media sosial dibatasi` | `HUB_WRITE_TARGET` belum `production`/`both`. |
 | `409 Siapkan tabel antrean media sosial dahulu` | Langkah `prepare` belum dijalankan. |
-| `count: 0` + `reason: QUEUE_EMPTY` | Antrean kosong — belum ada berita baru. Normal. |
-| `count: 0` + `reason: NO_FRESH_ITEMS` | Ada antrean, tapi semuanya sudah lewat 6 jam. Normal. |
-| `count: 0` + `reason: DAILY_CAP_REACHED` | Kuota 16/hari sudah terpakai. Normal, lanjut besok. |
+| `data.count: 0` + `reason: QUEUE_EMPTY` | Antrean kosong — belum ada berita baru. Normal. |
+| `data.count: 0` + `reason: NO_FRESH_ITEMS` | Ada antrean, tapi semuanya sudah lewat 6 jam. Normal. |
+| `data.count: 0` + `reason: DAILY_CAP_REACHED` | Kuota 16/hari sudah terpakai. Normal, lanjut besok. |
+| `data.linkTarget: "original"` | Tautan jatuh ke situs sumber — alamat portal tidak terbaca |
 | Facebook: `(#200) The user hasn't authorized the application` | Belum menyetujui izin halaman. Ulangi Add connection. |
 
 ---
@@ -223,6 +325,6 @@ Blueprint memakai alamat **`https://lokal-news-fix-ujsf.vercel.app`**.
 Saat pindah ke `portal-hub.online`, buka skenario di Make dan ganti alamat di **kedua** modul HTTP
 (modul 1 dan modul 4). Kalau tidak diganti, Make akan menerima galat 404.
 
-Berkas blueprint lain di folder ini (`skenario-1`, `skenario-2`, `skenario-gabungan`,
-`skenario-redaktur`) **tidak diperlukan lagi** — penjadwalan sudah dijalankan GitHub Actions.
-Simpan hanya untuk rujukan.
+Berkas blueprint lama (`skenario-1`, `skenario-2`, `skenario-gabungan`, `skenario-redaktur`)
+sudah **dihapus** — selain tidak diperlukan lagi (penjadwalan dijalankan GitHub Actions),
+keempatnya memakai format yang salah sehingga gagal diimpor.

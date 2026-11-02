@@ -91,9 +91,29 @@ export type SocialItem = {
   ageHours: number;
 };
 
+/**
+ * Alamat portal sendiri, dipakai untuk membentuk tautan yang diposting ke media sosial.
+ *
+ * Sebelumnya hanya membaca HUB_PUBLIC_SITE_URL. Variabel itu tidak selalu diisi, sehingga
+ * siteBase() bernilai null dan tautan yang terkirim jatuh ke URL situs sumber — pembaca
+ * keluar dari portal. Sekarang ada urutan cadangan, jadi tidak perlu mengisi variabel baru.
+ */
 export function siteBase(env: NodeJS.ProcessEnv = process.env) {
-  const raw = env.HUB_PUBLIC_SITE_URL || '';
-  try { const u = new URL(raw); return u.protocol === 'https:' && !u.username && !u.password ? u.origin : null; } catch { return null; }
+  const calon = [
+    env.HUB_PUBLIC_SITE_URL,
+    env.NEXT_PUBLIC_SITE_URL,
+    env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${env.VERCEL_PROJECT_PRODUCTION_URL}` : '',
+    env.VERCEL_URL ? `https://${env.VERCEL_URL}` : '',
+  ];
+  for (const raw of calon) {
+    const teks = String(raw || '').trim();
+    if (!teks) continue;
+    try {
+      const u = new URL(teks);
+      if (u.protocol === 'https:' && !u.username && !u.password) return u.origin;
+    } catch { /* lanjut ke cadangan berikutnya */ }
+  }
+  return null;
 }
 
 async function itemPayload(db: Client, itemId: string, version: number, deliveryKey: string, attempts: number, env: NodeJS.ProcessEnv, now = Date.now()): Promise<SocialItem | null> {
@@ -172,6 +192,10 @@ export async function claimBatch(db: Client, opts: {max?: number; label?: string
     expiredNow: Number(stale.rowsAffected || 0),
     deliveredLast24h: terkirim24, dailyPostCap: kuotaHarian, maxAgeHours: SOCIAL_POLICY.maxAgeHours,
     remaining: sisaAntrean,
+    // 'site' = tautan ke portal sendiri (yang diinginkan). 'original' = jatuh ke situs sumber,
+    // terjadi bila alamat portal tidak dapat ditentukan sama sekali.
+    linkTarget: siteBase(opts.env || process.env) ? 'site' : 'original',
+    siteUrl: siteBase(opts.env || process.env),
     items: claimed, deliverySemantics: SOCIAL_POLICY.deliverySemantics, leaseMinutes: SOCIAL_POLICY.claimLeaseMs / 60000,
   };
 }
