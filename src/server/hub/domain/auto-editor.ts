@@ -153,6 +153,12 @@ export async function prepareAutoEditor(db: Client) {
  * sehingga kriteria kelas minimum tidak bermakna; tanpa tabel ringkasan, langkah AI dilewati.
  * Semua bersifat CREATE TABLE IF NOT EXISTS — tidak mengaktifkan apa pun.
  */
+/** Siapkan tabel preferensi/playlist bila belum ada — dipanggil sebelum langkah tren. */
+async function pastikanTabelFitur(db: Client) {
+  const r = await db.execute("SELECT count(*) n FROM sqlite_master WHERE type='table' AND name='hub_preferences_v3'");
+  if (Number(r.rows[0]?.n || 0) === 0) await (await import('./operations')).prepareFeatures(db);
+}
+
 export async function prepareDependencies(db: Client) {
   const out: {name: string; ok: boolean; detail: string}[] = [];
   const steps: [string, () => Promise<unknown>][] = [
@@ -161,6 +167,9 @@ export async function prepareDependencies(db: Client) {
     ['summaries', async () => (await import('./ai-summary')).prepareSummarySchema(db)],
     ['autopublish', async () => (await import('./publish-policy')).preparePublishSchema(db)],
     ['social', async () => (await import('./social-pull')).prepareSocialSchema(db)],
+    // Tanpa ini syncX/syncYoutube/publishTrends gagal dengan "no such table: hub_preferences_v3",
+    // sehingga panel Video di beranda kosong tanpa penjelasan apa pun.
+    ['features', async () => (await import('./operations')).prepareFeatures(db)],
   ];
   for (const [name, fn] of steps) {
     try { await fn(); out.push({name, ok: true, detail: 'siap'}); }
@@ -692,6 +701,7 @@ export async function runAutoEditor(db: Client, opts: RunOptions = {}) {
   //     Hanya berjalan bila pemilik sudah menyatakan izin (allowX) — tanpa izin, tidak ada
   //     permintaan keluar sama sekali.
   try {
+    await pastikanTabelFitur(db);
     const prefs = await getPreferences(db);
     if (prefs.allowX !== true) push('sync_trend', true, 'Dilewati: akses X belum diizinkan pemilik', 0);
     else {
@@ -711,6 +721,7 @@ export async function runAutoEditor(db: Client, opts: RunOptions = {}) {
   //     laporan putaran selalu berbunyi "50 tren X + 0 video" dan panel Video kekurangan isi.
   //     Tidak memanggil apa pun bila pemilik belum menyatakan izin (allowYoutube).
   try {
+    await pastikanTabelFitur(db);
     const prefs = await getPreferences(db);
     if (prefs.allowYoutube !== true) push('sync_youtube', true, 'Dilewati: akses YouTube belum diizinkan pemilik', 0);
     else {

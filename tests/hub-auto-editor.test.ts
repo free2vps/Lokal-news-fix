@@ -10,7 +10,7 @@ import {prepareSummarySchema} from '../src/server/hub/domain/ai-summary';
 import {preparePublishSchema} from '../src/server/hub/domain/publish-policy';
 import {prepareSocialSchema} from '../src/server/hub/domain/social-pull';
 import {
-  prepareAutoEditor, runAutoEditor, readAutoConfig, saveAutoConfig, setAutoEditor, setRightsMode,
+  prepareAutoEditor, prepareDependencies, runAutoEditor, readAutoConfig, saveAutoConfig, setAutoEditor, setRightsMode,
   autoEditorStatus, keyPoints, AUTO_EDITOR_POLICY,
 } from '../src/server/hub/domain/auto-editor';
 
@@ -386,5 +386,26 @@ test('komposisi 100% daerah — berita nasional tidak diterbitkan', async () => 
     assert.equal(out.published, 1);
     assert.equal(out.composition!.regional, 1);
     assert.equal(out.composition!.national, 0);
+  } finally { await db.close(); }
+});
+
+test('tabel preferensi/playlist disiapkan otomatis — tanpa ini YouTube diam tanpa sebab', async () => {
+  // Bug nyata: prepareFeatures() tidak pernah dipanggil, sehingga hub_preferences_v3 tidak ada.
+  // Akibatnya sync_trend & sync_youtube gagal "no such table", dan panel Video di beranda hilang.
+  const sumber = readFileSync('src/server/hub/domain/auto-editor.ts', 'utf8');
+  assert.ok(sumber.includes("['features'"), 'prepareFeatures harus masuk daftar dependensi');
+  assert.ok(sumber.includes('pastikanTabelFitur'), 'harus ada pemulihan otomatis sebelum langkah tren');
+});
+
+test('putaran benar-benar menyiapkan tabel fitur dan bisa membaca preferensi', async () => {
+  const {db} = await fixture();
+  try {
+    const dep = await prepareDependencies(db);
+    assert.ok(dep.some((d) => d.name === 'features' && d.ok), 'features harus siap');
+    const ada = await db.execute("SELECT count(*) n FROM sqlite_master WHERE type='table' AND name='hub_preferences_v3'");
+    assert.equal(Number(ada.rows[0].n), 1, 'tabel preferensi harus ada setelah prepare');
+    const {getPreferences} = await import('../src/server/hub/domain/operations');
+    const prefs = await getPreferences(db);
+    assert.equal(typeof prefs.allowYoutube, 'boolean', 'preferensi bisa dibaca tanpa galat');
   } finally { await db.close(); }
 });
