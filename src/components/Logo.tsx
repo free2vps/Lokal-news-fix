@@ -1,52 +1,38 @@
-import { existsSync } from 'node:fs';
-import path from 'node:path';
-import { SITE } from '@/config/site';
+'use client';
+import { useState } from 'react';
 
 /**
  * Logo portal.
  *
- * Memakai berkas gambar bila memang ada di `public/`, dan jatuh kembali ke kotak huruf
- * pertama bila belum — supaya tidak pernah muncul gambar rusak (ikon patah) saat berkas
- * belum diunggah. Dua lokasi dicari, urut:
- *   1. public/logo.png   (isi via NEXT_PUBLIC_SITE_LOGO)
- *   2. kotak huruf       (cadangan)
+ * SEBELUMNYA komponen ini memeriksa keberadaan berkas lewat `existsSync` di server. Itu gagal
+ * di produksi: halaman yang dirender ulang (ISR) berjalan di fungsi serverless Vercel, di mana
+ * folder `public/` tidak selalu ada di sistem berkas fungsi — sehingga pemeriksaan menjawab
+ * "tidak ada" dan yang tampil selalu kotak huruf, padahal berkasnya jelas terunggah.
  *
- * Berkas SVG sengaja tidak dipakai langsung agar teks alternatif tetap terbaca pembaca layar.
+ * Sekarang tidak ada pemeriksaan sistem berkas sama sekali. Gambar SELALU dirender; bila gagal
+ * dimuat (berkas belum ada / nama salah), barulah kotak huruf ditampilkan lewat `onError`.
+ * Hasilnya sama di build, di serverless, dan di komputer sendiri.
  */
-function logoExists(file: string): boolean {
-  try {
-    return existsSync(path.join(process.cwd(), 'public', file));
-  } catch {
-    return false;
-  }
-}
+export default function Logo({ size = 40, name = 'portal-hub', file }: { size?: number; name?: string; file?: string }) {
+  const src = `/${file || process.env.NEXT_PUBLIC_SITE_LOGO || 'logo.png'}`.replace(/^\/+/, '/');
+  const [gagal, setGagal] = useState(false);
+  const huruf = (name || '?').trim().charAt(0).toUpperCase() || '?';
 
-/** Apakah berkas logo benar-benar ada. Dipakai komponen lain agar tidak menulis nama dua kali. */
-export const HAS_LOGO = logoExists((process.env.NEXT_PUBLIC_SITE_LOGO || 'logo.png').replace(/^\/+/, ''));
-
-export default function Logo({ size = 40, withName = true }: { size?: number; withName?: boolean }) {
-  const candidate = (process.env.NEXT_PUBLIC_SITE_LOGO || 'logo.png').replace(/^\/+/, '');
-  const has = logoExists(candidate);
-
-  // shrink-0 pada pembungkus: tanpa itu, kolom pencarian di sebelahnya memeras logo di ponsel.
   return (
     <span className="flex shrink-0 items-center gap-2.5 font-serif text-3xl font-bold tracking-tight text-brand">
-      {has ? (
+      {gagal ? (
+        <span className="grid place-items-center rounded-lg bg-brand text-bg" style={{ height: size, width: size, fontSize: size * 0.6 }} aria-hidden>
+          {huruf}
+        </span>
+      ) : (
         /* eslint-disable-next-line @next/next/no-img-element */
         <img
-          src={`/${candidate}`}
-          alt={SITE.name}
-          // `shrink-0` + `max-w-none` WAJIB: tanpa keduanya, logo di dalam baris flex
-          // (header: logo + kolom pencarian) diperas menjadi kotak sempit dan gepeng di ponsel.
+          src={src}
+          alt={name}
+          onError={() => setGagal(true)}
           className={`block w-auto shrink-0 object-contain ${size >= 40 ? 'h-8 sm:h-10' : 'h-7 sm:h-8'}`}
         />
-      ) : (
-        <span className="grid place-items-center rounded-lg bg-brand text-bg" style={{ height: size, width: size, fontSize: size * 0.6 }} aria-hidden>
-          {SITE.name[0]}
-        </span>
       )}
-      {withName && has && <span className="sr-only">{SITE.name}</span>}
-      {withName && !has && <span className="hidden sm:inline">{SITE.name}</span>}
     </span>
   );
 }

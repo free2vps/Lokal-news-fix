@@ -2,7 +2,7 @@ import type { ReactElement } from 'react';
 import Link from 'next/link';
 import { SITE } from '@/config/site';
 import { getSocialLinks } from '@/lib/queries';
-import Logo, { HAS_LOGO } from './Logo';
+import Logo from './Logo';
 
 const legal = [['/disclaimer', 'Disclaimer & Hak Cipta'], ['/pedoman-media', 'Pedoman Media & Hak Jawab'], ['/privacy-policy', 'Kebijakan Privasi']];
 
@@ -23,10 +23,7 @@ export default async function Footer() {
     <footer className="border-t border-line bg-surface">
       <div className="mx-auto grid max-w-6xl gap-8 px-4 py-8 text-sm md:grid-cols-[1.4fr_1fr_1fr]">
         <div>
-          <Logo size={32} withName={false} />
-          {/* Nama situs hanya ditulis bila logonya belum ada — bila logo sudah memuat nama,
-              menulisnya lagi membuat footer terasa dobel. */}
-          {!HAS_LOGO && <p className="mt-2 font-serif text-xl font-semibold text-brand">{SITE.name}</p>}
+          <Logo size={32} name={SITE.name} />
           <p className="mt-2 max-w-md text-muted">Kami merangkum berita dari media dan situs resmi, lalu mengarahkan Anda ke artikel aslinya. Hak cipta isi berita dimiliki masing-masing sumber.</p>
           <p className="mt-2 text-muted">Pengaduan konten: <a className="text-brand underline" href={`mailto:${SITE.email}`}>{SITE.email}</a></p>
         </div>

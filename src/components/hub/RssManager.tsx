@@ -40,6 +40,26 @@ export default function RssManager({sources, onChanged}:{sources: RssSource[] | 
     } finally { setBusy(''); }
   }
 
+  async function hapus(source: RssSource) {
+    if (source.active) { setMsg(m => ({...m, [source.id]: 'Matikan saklar Aktif dulu, baru hapus.'})); return; }
+    // Konfirmasi dua langkah: klik tombol, lalu ketik HAPUS. Sumber berisi riwayat berita.
+    const ketik = window.prompt(`Hapus sumber "${source.name}"?\n\nBerita yang sudah terbit di portal TIDAK ikut terhapus.\nKetik HAPUS untuk melanjutkan.`);
+    if (ketik !== 'HAPUS') { setMsg(m => ({...m, [source.id]: 'Dibatalkan.'})); return; }
+    setBusy(source.id);
+    setMsg(m => ({...m, [source.id]: 'Menghapus…'}));
+    try {
+      const r = await fetch('/api/hub/workspace', {method: 'POST', credentials: 'same-origin',
+        headers: {'Content-Type': 'application/json', 'X-Hub-Request': '1'},
+        body: JSON.stringify({action: 'deleteSource', sourceId: source.id, confirm: 'HAPUS'})});
+      const j = await r.json().catch(() => ({error: 'Respons tidak terbaca'}));
+      if (!r.ok) throw Error(String(j.error || 'Gagal'));
+      setMsg(m => ({...m, [source.id]: `Terhapus (${j.itemsRemoved ?? 0} berita staging ikut dibersihkan).`}));
+      await onChanged();
+    } catch (e) {
+      setMsg(m => ({...m, [source.id]: e instanceof Error ? e.message : 'Gagal menghapus'}));
+    } finally { setBusy(''); }
+  }
+
   if (sources === null) return <div className="panel">Memuat sumber…</div>;
 
   return <div className="panel">
@@ -71,6 +91,14 @@ export default function RssManager({sources, onChanged}:{sources: RssSource[] | 
                 {busy === s.id ? '…' : s.active ? 'Aktif' : 'Mati'}
               </label>
               {msg[s.id] && <div className="tiny muted">{msg[s.id]}</div>}
+              <button type="button" className="tiny" disabled={busy === s.id || s.active}
+                title={s.active ? 'Matikan sumber dulu sebelum menghapus' : 'Hapus sumber ini'}
+                onClick={() => void hapus(s)}
+                style={{marginTop: 6, color: '#b42318', background: 'none', border: '1px solid currentColor',
+                  borderRadius: 6, padding: '2px 8px', cursor: s.active ? 'not-allowed' : 'pointer',
+                  opacity: s.active ? 0.45 : 1}}>
+                Hapus
+              </button>
             </td>
           </tr>;
         })}

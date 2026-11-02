@@ -234,7 +234,11 @@ test('stage8 delivery failure is recorded safely, refuses without credentials, a
 });
 
 test('stage8 delivery adapter maps articles, uses HTTPS REST with service key header, and flags duplicates', async () => {
-  const snapshot = {editorialTitle: 'Beasiswa pelajar Lombok dibuka', editorialSummary: 'Pemerintah Provinsi Nusa Tenggara Barat membuka pendaftaran beasiswa bagi pelajar dan mahasiswa berprestasi melalui portal resmi.', originalUrl: 'https://satu.example.org/1', sourcePublishedAt: '2026-10-30T03:00:01Z', editorialCategory: 'Pendidikan'};
+  const snapshot = {editorialTitle: 'Beasiswa pelajar Lombok dibuka', editorialSummary: 'Pemerintah Provinsi Nusa Tenggara Barat membuka pendaftaran beasiswa bagi pelajar dan mahasiswa berprestasi melalui portal resmi.', originalUrl: 'https://satu.example.org/1',
+    // Tanggal HARUS relatif terhadap sekarang. Sebelumnya ditulis mati '2026-10-30' sehingga
+    // tes ini lulus hari itu saja, lalu gagal selamanya begitu artikel dianggap terlalu tua
+    // oleh penyaring kesegaran (3 hari) — padahal perilaku kodenya benar.
+    sourcePublishedAt: new Date(Date.now() - 3600_000).toISOString(), editorialCategory: 'Pendidikan'};
   const row = articleRow(snapshot);
   assert.ok(row && row.slug.includes('-hub-') && row.section === 'berita' && row.source_url === snapshot.originalUrl);
   const calls: {url: string; init: any}[] = [];

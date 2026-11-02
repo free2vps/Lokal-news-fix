@@ -17,7 +17,16 @@ const messages:Record<string,string>={
 };
 export function workspaceFailure(raw:string){
  const code=Object.hasOwn(messages,raw)?raw:/^HTTP_\d{3}$/.test(raw)?raw:'SYNC_FAILED';
- const error=messages[code]||`Sumber merespons HTTP ${code.slice(5)}. Izin aplikasi tidak membatalkan pembatasan dari sumber.`;
+ // 3xx setelah pengalihan yang wajar diikuti berarti situs mengarahkan ke alamat lain
+ // (sering kali ke http://, atau ke halaman lain). Beri tahu langkah berikutnya, jangan
+ // hanya menyebut angka.
+ const redirectHint:Record<string,string>={
+  HTTP_301:'Alamat sumber dialihkan ke alamat lain dan pengalihan tidak bisa diikuti dengan aman (biasanya karena tujuan bukan https). Tempel alamat TUJUAN yang sebenarnya — buka tautannya di browser, salin alamat akhir dari bilah alamat.',
+  HTTP_302:'Alamat sumber dialihkan sementara ke halaman lain. Tempel alamat tujuan yang muncul di bilah alamat browser.',
+  HTTP_307:'Alamat sumber dialihkan ke halaman lain. Tempel alamat tujuan yang muncul di bilah alamat browser.',
+  HTTP_308:'Alamat sumber dialihkan permanen ke halaman lain. Tempel alamat tujuan yang muncul di bilah alamat browser.',
+ };
+ const error=redirectHint[code]||messages[code]||`Sumber merespons HTTP ${code.slice(5)}. Izin aplikasi tidak membatalkan pembatasan dari sumber.`;
  return {code,error,dataPreserved:true};
 }
 /** No network request, no mutation, no archive/master access. Unknown permission is never treated as consent. */

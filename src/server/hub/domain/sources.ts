@@ -131,3 +131,35 @@ export async function listSourceRightsLog(db: Client, limit = 20) {
       .map(r => ({ sourceId: String(r.source_id), from: r.from_status ? String(r.from_status) : null, to: String(r.to_status), actor: String(r.actor), at: String(r.created_at) }));
   } catch { return []; }
 }
+
+/**
+ * Hapus sumber RSS yang tidak dipakai lagi.
+ *
+ * Pengaman:
+ *  - Sumber HARUS dimatikan lebih dulu. Menghapus sumber yang masih aktif terlalu mudah
+ *    dilakukan tanpa sengaja, dan berita yang sedang mengalir ikut terputus.
+ *  - Berita yang SUDAH TERBIT di portal tidak disentuh: itu tersimpan di database portal,
+ *    bukan di Hub. Yang dihapus hanya data staging Hub.
+ *  - Dijalankan dalam satu transaksi; bila satu langkah gagal, tidak ada yang terhapus setengah.
+ */
+export async function deleteSource(db: Client, id: string) {
+  const row = (await db.execute({ sql: 'SELECT id,name,is_active FROM hub_sources WHERE id=?', args: [id] })).rows[0];
+  if (!row) throw new Error('SOURCE_NOT_FOUND');
+  if (Number(row.is_active) === 1) throw new Error('SOURCE_STILL_ACTIVE');
+
+  const items = (await db.execute({ sql: 'SELECT id FROM hub_items WHERE source_id=?', args: [id] })).rows.map(r => String(r.id));
+  const tx = await db.transaction('write');
+  try {
+    if (items.length) {
+      const tanda = items.map(() => '?').join(',');
+      // Urutan penting: anak dulu, induk terakhir.
+      await tx.execute({ sql: `DELETE FROM hub_publish_outbox WHERE item_id IN (${tanda})`, args: items });
+      await tx.execute({ sql: `DELETE FROM hub_item_approvals WHERE item_id IN (${tanda})`, args: items });
+      await tx.execute({ sql: `DELETE FROM hub_item_observations WHERE item_id IN (${tanda})`, args: items }).catch(() => {});
+      await tx.execute({ sql: `DELETE FROM hub_items WHERE id IN (${tanda})`, args: items });
+    }
+    await tx.execute({ sql: 'DELETE FROM hub_sources WHERE id=?', args: [id] });
+    await tx.commit();
+    return { deleted: true, name: String(row.name || ''), itemsRemoved: items.length };
+  } catch (error) { await tx.rollback(); throw error; }
+}

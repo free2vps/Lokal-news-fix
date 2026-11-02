@@ -561,6 +561,27 @@ export async function runAutoEditor(db: Client, opts: RunOptions = {}) {
     const rest = [...regional.slice(regionalTarget), ...national.slice(Math.max(0, capacity - regionalTarget))].sort(byFresh);
     for (const c of rest) { if (picked.length >= targetAfterFun) break; if (!picked.includes(c)) picked.push(c); }
   }
+  // 6b. KATEGORI DIPERBAIKI AI — hanya untuk berita yang benar-benar akan terbit (maks 12/putaran),
+  //     supaya hemat kuota. Bila AI tidak tersedia atau jawabannya aneh, kategori hasil aturan kata
+  //     (topicOf) dipakai apa adanya: tidak ada berita yang batal terbit gara-gara ini.
+  let aiRecat = 0;
+  if (picked.length && process.env.HUB_AI_CATEGORY !== 'off') {
+    try {
+      const { classifyWithAi } = await import('./ai-category');
+      for (const c of picked) {
+        const hasil = await classifyWithAi(db, { title: c.title, summary: c.summary }, { master: opts.master, now }).catch(() => null);
+        if (hasil && hasil.category !== c.category) {
+          c.category = hasil.category;
+          aiRecat += 1;
+        }
+      }
+      if (aiRecat) push('kategori_ai', true, `${aiRecat} kategori diperbaiki AI sebelum terbit`, aiRecat);
+    } catch (e) {
+      // Kegagalan AI tidak boleh menggagalkan putaran.
+      push('kategori_ai', true, `Dilewati (${readable(e)})`, 0);
+    }
+  }
+
   const tookFun = picked.filter(isFun).length;
   const tookRegional = picked.filter(c => c.scope === 'daerah' && !isFun(c)).length;
   const tookNational = picked.length - tookRegional - tookFun;

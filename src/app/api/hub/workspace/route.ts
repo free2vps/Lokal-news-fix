@@ -54,6 +54,17 @@ export async function POST(request:Request){
   if(b.action==='syncX'){if(preferences.allowX!==true)throw Error('ACCESS_NOT_CONFIRMED');return reply(await syncX(a.db));}
   if(b.action==='syncYoutube'){if(preferences.allowYoutube!==true)throw Error('ACCESS_NOT_CONFIRMED');return reply(await syncYoutube(a.db));}
   // Satu saklar RSS Manager: tidak butuh token konfirmasi, tidak butuh saklar izin terpisah.
+  // Hapus sumber: wajib konfirmasi teks, dan sumber harus sudah dimatikan.
+  if(b.action==='deleteSource'){
+   if(typeof b.sourceId!=='string'||b.sourceId.length>200)return errorJson('ID sumber tidak valid.',400);
+   if(b.confirm!=='HAPUS')return errorJson('Ketik HAPUS untuk menghapus sumber ini.',400);
+   const {deleteSource}=await import('@/server/hub/domain/sources');
+   try{return reply(await deleteSource(a.db,b.sourceId));}
+   catch(e){const c=e instanceof Error?e.message:'';
+     if(c==='SOURCE_STILL_ACTIVE')return errorJson('Matikan saklar Aktif sumber ini dulu, baru hapus.',409);
+     if(c==='SOURCE_NOT_FOUND')return errorJson('Sumber tidak ditemukan.',404);
+     throw e;}
+  }
   if(b.action==='toggleSource'){
    if(typeof b.sourceId!=='string'||b.sourceId.length>200)return errorJson('ID sumber tidak valid.',400);
    if(typeof b.active!=='boolean')return errorJson('Status aktif tidak valid.',400);

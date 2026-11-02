@@ -20,7 +20,7 @@ export default async function Header() {
           </div>
         </div>
         <div className="mx-auto flex max-w-6xl items-center gap-3 px-4 py-3">
-          <Link href="/" aria-label={`${SITE.name} — beranda`} className="shrink-0"><Logo /></Link>
+          <Link href="/" aria-label={`${SITE.name} — beranda`} className="shrink-0"><Logo name={SITE.name} /></Link>
           {/* min-w-0 + flex-1: tanpa keduanya kolom pencarian melebar melewati layar ponsel
               dan seluruh halaman bisa digeser ke samping (scrollWidth 460 pada layar 390). */}
           <div className="mx-auto min-w-0 w-full max-w-2xl flex-1"><SearchForm /></div>

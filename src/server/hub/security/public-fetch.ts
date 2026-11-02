@@ -3,7 +3,16 @@ import https from 'node:https';
 import ipaddr from 'ipaddr.js';
 import robotsParser from 'robots-parser';
 /** Resolve all addresses, reject nonpublic, pin the actual TLS connection. Never downgrade TLS. */
-export async function publicFetch(raw:string,maxBytes=1500000,allowedHosts?:string[]):Promise<string>{
+/**
+ * Alasan `hops`: banyak situs mengalihkan alamat secara wajar — menambah garis miring
+ * (`/feed` → `/feed/`), memindahkan `http` ke `https`, atau mengarahkan ke alamat kanonis.
+ * Sebelumnya SEMUA pengalihan dijawab sebagai galat ("HTTP 301"), sehingga sumber yang
+ * sebenarnya sehat ditolak dengan pesan yang membingungkan.
+ *
+ * Batas keamanan tetap dipertahankan: hanya https, hanya host yang sama, maksimal 2 lompatan,
+ * dan setiap lompatan diperiksa ulang DNS-nya supaya tidak bisa dipakai menembus jaringan lokal.
+ */
+export async function publicFetch(raw:string,maxBytes=1500000,allowedHosts?:string[],hops=0):Promise<string>{
  const u=new URL(raw),host=u.hostname.toLowerCase();
  if(u.protocol!=='https:'||u.username||u.password||u.port||!host.includes('.')||/[\[\]]/.test(host)||/\.(local|internal|localhost)$/.test(host)||host==='localhost'||(allowedHosts&&!allowedHosts.includes(host)))throw Error('NETWORK_BLOCKED');
  const answers=await dns.lookup(host,{all:true});
@@ -11,7 +20,19 @@ export async function publicFetch(raw:string,maxBytes=1500000,allowedHosts?:stri
  const answer=answers[0];
  return new Promise((resolve,reject)=>{
   const req=https.get(u,{headers:{'User-Agent':'PortalContentHub/1.0 (+manual metadata sync)','Accept':'application/rss+xml,application/atom+xml,text/xml,text/html;q=0.5'},lookup:((_hostname:unknown,options:any,cb:any)=>options?.all?cb(null,[answer]):cb(null,answer.address,answer.family)) as any},res=>{
-   if(res.statusCode!==200){res.destroy();reject(Error('HTTP_'+res.statusCode));return;}
+   const code=Number(res.statusCode);
+   if(code>=300&&code<400&&res.headers.location){
+     res.destroy();
+     if(hops>=2){reject(Error('HTTP_'+code));return;}
+     let next:URL;
+     try{next=new URL(String(res.headers.location),u);}catch{reject(Error('HTTP_'+code));return;}
+     // Hanya https dan host yang sama — mencegah pengalihan ke alamat dalam jaringan.
+     if(next.protocol!=='https:'||next.hostname.toLowerCase()!==host){reject(Error('HTTP_'+code));return;}
+     clearTimeout(timer);
+     publicFetch(next.href,maxBytes,allowedHosts,hops+1).then(resolve,reject);
+     return;
+   }
+   if(code!==200){res.destroy();reject(Error('HTTP_'+code));return;}
    const chunks:Buffer[]=[];let n=0;
    res.on('data',(chunk:Buffer)=>{n+=chunk.length;if(n>maxBytes){res.destroy(Error('RESPONSE_TOO_LARGE'));return;}chunks.push(chunk);});
    res.on('end',()=>{clearTimeout(timer);resolve(Buffer.concat(chunks).toString('utf8'));});res.on('error',reject);
