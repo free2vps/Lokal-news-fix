@@ -119,3 +119,13 @@ test('dengan kunci tersimpan, penarikan memakai API', async () => {
     assert.equal(out[0].title, 'Berita video');
   } finally { await db.close(); rmSync(dir, {recursive: true, force: true}); }
 });
+
+test('tombol "Perbarui manual" meneruskan kunci master dan langsung mengirim ke beranda', () => {
+  // BUG nyata r51: route memanggil syncYoutube(a.db) TANPA master, sehingga kunci API
+  // yang sudah disimpan tidak bisa dibuka → tarikan gagal walau kuncinya benar.
+  const isi = readFileSync('src/app/api/hub/workspace/route.ts', 'utf8');
+  assert.ok(/syncYoutube\(a\.db,\s*process\.env\.HUB_MASTER_KEY\)/.test(isi),
+    'kunci master wajib diteruskan ke syncYoutube');
+  assert.ok(!/syncYoutube\(a\.db\)/.test(isi), 'tidak boleh memanggil tanpa master');
+  assert.ok(isi.includes('publishTrends'), 'setelah tarik manual, tren harus dikirim ke beranda');
+});

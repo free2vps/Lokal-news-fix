@@ -66,7 +66,16 @@ export async function POST(request:Request){
   }
   const preferences=await getPreferences(a.db);
   if(b.action==='syncX'){if(preferences.allowX!==true)throw Error('ACCESS_NOT_CONFIRMED');return reply(await syncX(a.db));}
-  if(b.action==='syncYoutube'){if(preferences.allowYoutube!==true)throw Error('ACCESS_NOT_CONFIRMED');return reply(await syncYoutube(a.db));}
+  if(b.action==='syncYoutube'){
+   if(preferences.allowYoutube!==true)throw Error('ACCESS_NOT_CONFIRMED');
+   // BUG yang diperbaiki: kunci master tidak diteruskan, sehingga kunci YouTube Data API
+   // yang sudah tersimpan tidak bisa dibuka dan tarikan selalu gagal YOUTUBE_API_KEY_REQUIRED.
+   const pulled=await syncYoutube(a.db,process.env.HUB_MASTER_KEY);
+   // Setelah ditarik, langsung kirim ke beranda supaya hasilnya terlihat tanpa menunggu putaran.
+   let published:unknown=null;
+   try{const {publishTrends}=await import('@/server/hub/domain/trends-publish');published=await publishTrends(a.db,{master:process.env.HUB_MASTER_KEY});}catch{/* tarikan tetap berhasil walau pengiriman gagal */}
+   return reply({...pulled,published});
+  }
   // Satu saklar RSS Manager: tidak butuh token konfirmasi, tidak butuh saklar izin terpisah.
   // Hapus sumber: wajib konfirmasi teks, dan sumber harus sudah dimatikan.
   if(b.action==='deleteSource'){
