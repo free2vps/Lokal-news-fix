@@ -1,0 +1,145 @@
+{
+  "name": "portal-hub — posting Facebook tiap 3 jam (hemat kuota gratis)",
+  "flow": [
+    {
+      "id": 1,
+      "module": "http:ActionSendData",
+      "version": 3,
+      "parameters": {
+        "handleErrors": false,
+        "useNewZLibCompression": false,
+        "url": "https://lokal-news-fix-ujsf.vercel.app/api/hub/social?action=pull&max=2",
+        "method": "get",
+        "headers": [
+          {
+            "name": "Authorization",
+            "value": "Bearer GANTI_TOKEN_SOSIAL"
+          },
+          {
+            "name": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "qs": [],
+        "bodyType": "raw",
+        "parseResponse": true,
+        "authUser": null,
+        "authPass": null,
+        "timeout": "",
+        "shareCookies": false,
+        "ca": "",
+        "rejectUnauthorized": true,
+        "followRedirect": true,
+        "useQuerystring": false,
+        "gzip": true,
+        "useMtls": false,
+        "contentType": "application/json",
+        "serializeUrl": false,
+        "data": "",
+        "escapeData": false,
+        "outputIntoBundle": false
+      },
+      "metadata": {
+        "designer": {
+          "x": 0,
+          "y": 0
+        },
+        "restore": {},
+        "parameters": [
+          {
+            "name": "url",
+            "type": "url"
+          }
+        ]
+      }
+    },
+    {
+      "id": 2,
+      "module": "builtin:BasicFeeder",
+      "version": 1,
+      "parameters": {
+        "array": "{{1.body.items}}"
+      },
+      "metadata": {
+        "designer": {
+          "x": 300,
+          "y": 0
+        }
+      },
+      "next": [
+        3
+      ]
+    },
+    {
+      "id": 3,
+      "module": "facebook-pages:createPost",
+      "version": 1,
+      "parameters": {
+        "page": "PILIH_HALAMAN_FACEBOOK_ANDA",
+        "message": "{{2.title}}\n\n{{2.summary}}\n\nBaca selengkapnya: {{2.articleUrl}}",
+        "link": "{{2.articleUrl}}"
+      },
+      "metadata": {
+        "designer": {
+          "x": 600,
+          "y": 0
+        }
+      }
+    },
+    {
+      "id": 4,
+      "module": "http:ActionSendData",
+      "version": 3,
+      "parameters": {
+        "handleErrors": false,
+        "useNewZLibCompression": false,
+        "url": "https://lokal-news-fix-ujsf.vercel.app/api/hub/social?action=ack",
+        "method": "post",
+        "headers": [
+          {
+            "name": "Authorization",
+            "value": "Bearer GANTI_TOKEN_SOSIAL"
+          },
+          {
+            "name": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "bodyType": "raw",
+        "contentType": "application/json",
+        "data": "{\"results\": [{\"deliveryKey\": \"{{2.deliveryKey}}\", \"ok\": true}]}",
+        "parseResponse": true,
+        "rejectUnauthorized": true,
+        "followRedirect": true,
+        "gzip": true
+      },
+      "metadata": {
+        "designer": {
+          "x": 900,
+          "y": 0
+        }
+      }
+    }
+  ],
+  "metadata": {
+    "instant": false,
+    "version": 1,
+    "scenario": {
+      "roundtrips": 1,
+      "maxErrors": 3,
+      "autoCommit": true,
+      "autoCommitTriggerLast": true,
+      "sequential": false,
+      "confidential": false,
+      "dataloss": false,
+      "dlq": false,
+      "freshVariables": false,
+      "slot": null,
+      "schedule": {
+        "type": "interval",
+        "interval": 180,
+        "restart": false
+      }
+    }
+  }
+}

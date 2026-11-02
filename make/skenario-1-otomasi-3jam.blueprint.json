@@ -8,7 +8,7 @@
       "parameters": {
         "handleErrors": false,
         "useNewZLibCompression": false,
-        "url": "https://lokal-news-fix-ujsf-64ay9i2fr-free2vps.vercel.app/api/hub/automation?action=run",
+        "url": "https://lokal-news-fix-ujsf.vercel.app/api/hub/automation?action=run",
         "method": "post",
         "headers": [
           {

@@ -1,3 +1,13 @@
+# ⚠️ BERKAS LAMA — BACA `README-MAKE-DAN-FACEBOOK.md`
+
+Rencana di bawah ini **sudah tidak dipakai**: penjadwalan kini dijalankan GitHub Actions
+(`.github/workflows/hub-tick.yml`, tiap jam), sehingga Make hanya perlu mengurus **posting
+Facebook**. Blueprint lama juga sempat menunjuk alamat deployment yang sudah mati.
+
+Pakai: **`make/skenario-facebook-hemat-kuota.blueprint.json`**
+
+---
+
 # Make.com — Redaktur Otomatis 3 jam (Tahap 10)
 
 Ini skenario **utama** sekarang. Satu pemicu menjalankan seluruh rantai:
