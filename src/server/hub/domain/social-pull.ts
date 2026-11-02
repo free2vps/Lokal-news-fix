@@ -15,6 +15,13 @@ export const SOCIAL_POLICY = {
   hardMaxPerPull: 4,
   claimLeaseMs: 6 * 3600000,
   maxAttempts: 5,
+  /** Berita lebih tua dari ini TIDAK diposting; ditandai basi agar antrean tidak menumpuk. */
+  maxAgeHours: 6,
+  /** Batas kiriman per 24 jam — penjaga biaya Make dan penjaga agar halaman FB tidak dibanjiri. */
+  dailyPostCap: 16,
+  pullOrder: 'newest_first',
+  /** Baris lama (terkirim/basi) disimpan 14 hari untuk riwayat, lalu dibuang agar tabel tidak menggelembung. */
+  retentionDays: 14,
   deliverySemantics: 'at_least_once',
   facebookPostedBy: 'make.com',
   notes: [
@@ -22,6 +29,8 @@ export const SOCIAL_POLICY = {
     'Hanya artikel yang sudah terbit di situs yang masuk antrean media sosial.',
     'Bila ack tidak terkirim, item dapat muncul lagi setelah lease 6 jam—periksa halaman Facebook dahulu.',
     'Antrean hanya berisi artikel yang sudah disetujui manusia dan terbit; tidak ada publikasi tanpa persetujuan.',
+    'Yang diambil SELALU berita terbaru. Berita yang lewat 6 jam ditandai basi (STALE_UNPOSTED) dan tidak diposting.',
+    'Karena itu antrean tidak tumbuh tanpa batas dan yang tampil di media sosial selalu berita segar.',
   ],
 } as const;
 
@@ -58,7 +67,11 @@ export async function socialReady(db: Client) {
 /** Isi antrean dari outbox yang sudah berstatus published (idempoten). */
 export async function enqueuePublished(db: Client, now = Date.now()) {
   if (!(await socialReady(db))) throw Error('SOCIAL_NOT_READY');
-  const rows = (await db.execute({sql: "SELECT o.item_id,o.approved_version FROM hub_publish_outbox o WHERE o.status='published' ORDER BY o.created_at,o.item_id", args: []})).rows;
+  const cutoff = new Date(now - SOCIAL_POLICY.maxAgeHours * 3600000).toISOString();
+  const rows = (await db.execute({sql: `SELECT o.item_id,o.approved_version FROM hub_publish_outbox o
+      JOIN hub_items i ON i.id=o.item_id
+      WHERE o.status='published' AND COALESCE(i.source_published_at,o.created_at)>=?
+      ORDER BY COALESCE(i.source_published_at,o.created_at) DESC,o.item_id`, args: [cutoff]})).rows;
   let inserted = 0;
   for (const r of rows) {
     const res = await db.execute({sql: `INSERT OR IGNORE INTO hub_social_queue_v2(delivery_key,item_id,item_version,status,created_at,updated_at)
@@ -72,6 +85,8 @@ export type SocialItem = {
   deliveryKey: string; itemId: string; version: number; title: string; summary: string;
   sourceName: string; sourceUrl: string; articleUrl: string; articleUrlSource: 'site' | 'original';
   publishedAt: string | null; category: string | null; region: string | null; attempts: number;
+  /** Umur berita dalam jam saat diambil — Make bisa menolak memposting bila terlalu tua. */
+  ageHours: number;
 };
 
 export function siteBase(env: NodeJS.ProcessEnv = process.env) {
@@ -79,7 +94,7 @@ export function siteBase(env: NodeJS.ProcessEnv = process.env) {
   try { const u = new URL(raw); return u.protocol === 'https:' && !u.username && !u.password ? u.origin : null; } catch { return null; }
 }
 
-async function itemPayload(db: Client, itemId: string, version: number, deliveryKey: string, attempts: number, env: NodeJS.ProcessEnv): Promise<SocialItem | null> {
+async function itemPayload(db: Client, itemId: string, version: number, deliveryKey: string, attempts: number, env: NodeJS.ProcessEnv, now = Date.now()): Promise<SocialItem | null> {
   const row = (await db.execute({sql: `SELECT i.editorial_title,i.source_title,i.editorial_summary,i.source_snippet,i.original_url,i.editorial_category,i.source_published_at,
       s.name source_name,s.region,o.snapshot_json
     FROM hub_items i JOIN hub_sources s ON s.id=i.source_id
@@ -103,31 +118,54 @@ async function itemPayload(db: Client, itemId: string, version: number, delivery
     publishedAt: row.source_published_at ? String(row.source_published_at) : null,
     category: row.editorial_category ? String(row.editorial_category) : null,
     region: row.region ? String(row.region) : null, attempts,
+    ageHours: row.source_published_at ? Math.max(0, Math.round((now - Date.parse(String(row.source_published_at))) / 3600000)) : 0,
   };
 }
 
 /** Klaim hingga 4 item; lease 6 jam agar aman bila skenario Make berhenti di tengah. */
-export async function claimBatch(db: Client, opts: {max?: number; label?: string; now?: number; env?: NodeJS.ProcessEnv} = {}) {
+export async function claimBatch(db: Client, opts: {max?: number; label?: string; now?: number; env?: NodeJS.ProcessEnv; cap?: number} = {}) {
   if (!(await socialReady(db))) throw Error('SOCIAL_NOT_READY');
   const now = opts.now ?? Date.now();
   const max = clampInt(opts.max, 1, SOCIAL_POLICY.hardMaxPerPull, SOCIAL_POLICY.maxPerPull);
   const label = String(opts.label || 'make').slice(0, 60);
   await db.execute({sql: "UPDATE hub_social_queue_v2 SET status='pending',claimed_by=NULL,claimed_until=0,updated_at=? WHERE status='claimed' AND claimed_until<? AND attempts<?", args: [new Date(now).toISOString(), now, SOCIAL_POLICY.maxAttempts]});
   await db.execute({sql: "UPDATE hub_social_queue_v2 SET status='failed',claimed_by=NULL,claimed_until=0,last_error='CLAIM_EXPIRED',updated_at=? WHERE status='claimed' AND claimed_until<? AND attempts>=?", args: [new Date(now).toISOString(), now, SOCIAL_POLICY.maxAttempts]});
-  const ready = (await db.execute({sql: "SELECT delivery_key,item_id,item_version,attempts FROM hub_social_queue_v2 WHERE status='pending' ORDER BY created_at,delivery_key LIMIT ?", args: [max]})).rows;
+  const cutoff = new Date(now - SOCIAL_POLICY.maxAgeHours * 3600000).toISOString();
+  // Antrean tidak boleh tumbuh selamanya: yang lewat batas umur dibuang, bukan diposting telat.
+  const stale = await db.execute({sql: `UPDATE hub_social_queue_v2 SET status='skipped',claimed_until=0,last_error='STALE_UNPOSTED',updated_at=?
+      WHERE status='pending' AND item_id IN (SELECT id FROM hub_items WHERE COALESCE(source_published_at, '1970-01-01')<?)`,
+    args: [new Date(now).toISOString(), cutoff]});
+  // Kuota 24 jam bergulir.
+  const terkirim24 = Number((await db.execute({sql: "SELECT count(*) n FROM hub_social_queue_v2 WHERE status='delivered' AND delivered_at>=?", args: [new Date(now - 24 * 3600000).toISOString()]})).rows[0].n);
+  const kuotaHarian = clampInt(opts.cap, 1, 48, SOCIAL_POLICY.dailyPostCap);
+  const sisaKuota = Math.max(0, kuotaHarian - terkirim24);
+  const ambil = Math.min(max, sisaKuota);
+  const ready = ambil > 0
+    ? (await db.execute({sql: `SELECT q.delivery_key,q.item_id,q.item_version,q.attempts
+          FROM hub_social_queue_v2 q JOIN hub_items i ON i.id=q.item_id
+          WHERE q.status='pending' AND COALESCE(i.source_published_at,q.created_at)>=?
+          ORDER BY COALESCE(i.source_published_at,q.created_at) DESC,q.delivery_key LIMIT ?`, args: [cutoff, ambil]})).rows
+    : [];
   const claimed: SocialItem[] = [];
   for (const r of ready) {
     const upd = await db.execute({sql: "UPDATE hub_social_queue_v2 SET status='claimed',claimed_by=?,claimed_until=?,attempts=attempts+1,updated_at=? WHERE delivery_key=? AND status='pending'",
       args: [label, now + SOCIAL_POLICY.claimLeaseMs, new Date(now).toISOString(), String(r.delivery_key)]});
     if (!upd.rowsAffected) continue;
-    const payload = await itemPayload(db, String(r.item_id), Number(r.item_version), String(r.delivery_key), Number(r.attempts) + 1, opts.env || process.env);
+    const payload = await itemPayload(db, String(r.item_id), Number(r.item_version), String(r.delivery_key), Number(r.attempts) + 1, opts.env || process.env, now);
     if (payload) claimed.push(payload);
     else await db.execute({sql: "UPDATE hub_social_queue_v2 SET status='skipped',last_error='ITEM_PAYLOAD_EMPTY',updated_at=? WHERE delivery_key=?", args: [new Date(now).toISOString(), String(r.delivery_key)]});
   }
   await db.execute({sql: 'INSERT INTO hub_social_runs_v2(id,action,claimed,actor,created_at) VALUES(?,?,?,?,?)', args: [randomUUID(), 'pull', claimed.length, label, new Date(now).toISOString()]});
+  await db.execute({sql: "DELETE FROM hub_social_queue_v2 WHERE status IN ('delivered','skipped','failed') AND updated_at<?", args: [new Date(now - SOCIAL_POLICY.retentionDays * 86400000).toISOString()]});
+  const sisaAntrean = Number((await db.execute({sql: "SELECT count(*) n FROM hub_social_queue_v2 WHERE status='pending'", args: []})).rows[0].n);
   return {
-    count: claimed.length, limit: max,
-    remaining: Number((await db.execute({sql: "SELECT count(*) n FROM hub_social_queue_v2 WHERE status='pending'", args: []})).rows[0].n),
+    count: claimed.length, limit: ambil,
+    reason: claimed.length === 0
+      ? (sisaKuota === 0 ? 'DAILY_CAP_REACHED' : (sisaAntrean === 0 ? 'QUEUE_EMPTY' : 'NO_FRESH_ITEMS'))
+      : null,
+    expiredNow: Number(stale.rowsAffected || 0),
+    deliveredLast24h: terkirim24, dailyPostCap: kuotaHarian, maxAgeHours: SOCIAL_POLICY.maxAgeHours,
+    remaining: sisaAntrean,
     items: claimed, deliverySemantics: SOCIAL_POLICY.deliverySemantics, leaseMinutes: SOCIAL_POLICY.claimLeaseMs / 60000,
   };
 }
@@ -157,7 +195,13 @@ export async function socialStatus(db: Client) {
   const queue = Object.fromEntries((await db.execute('SELECT status,count(*) n FROM hub_social_queue_v2 GROUP BY status')).rows.map(r => [String(r.status), Number(r.n)]));
   const tokens = (await db.execute('SELECT id,label,scopes,created_at,revoked_at,last_used_at FROM hub_social_tokens_v2 ORDER BY created_at DESC')).rows.map(r => ({id: String(r.id), label: String(r.label), scopes: String(r.scopes), createdAt: String(r.created_at), revoked: Boolean(r.revoked_at), lastUsedAt: r.last_used_at ? String(r.last_used_at) : null}));
   const runs = (await db.execute('SELECT action,claimed,delivered,failed,actor,created_at FROM hub_social_runs_v2 ORDER BY created_at DESC LIMIT 10')).rows.map(r => ({action: String(r.action), claimed: Number(r.claimed), delivered: Number(r.delivered), failed: Number(r.failed), actor: String(r.actor), at: String(r.created_at)}));
-  return {ready: true, queue, tokens, runs, policy: SOCIAL_POLICY, siteUrlConfigured: Boolean(siteBase()), facebookMaxPerRun: SOCIAL_POLICY.maxPerPull, pending: queue.pending || 0, delivered: queue.delivered || 0, failed: queue.failed || 0};
+  const tertua = (await db.execute("SELECT min(created_at) t FROM hub_social_queue_v2 WHERE status='pending'")).rows[0];
+  const terkirim24 = Number((await db.execute({sql: "SELECT count(*) n FROM hub_social_queue_v2 WHERE status='delivered' AND delivered_at>=?", args: [new Date(Date.now() - 24 * 3600000).toISOString()]})).rows[0].n);
+  // healthy = tidak ada tumpukan basi yang menunggu terlalu lama
+  const umurTertua = tertua?.t ? Math.round((Date.now() - Date.parse(String(tertua.t))) / 3600000) : 0;
+  return {ready: true, queue, tokens, runs, policy: SOCIAL_POLICY, siteUrlConfigured: Boolean(siteBase()), facebookMaxPerRun: SOCIAL_POLICY.maxPerPull, pending: queue.pending || 0, delivered: queue.delivered || 0, failed: queue.failed || 0,
+    stale: queue.skipped || 0, oldestPendingHours: umurTertua, deliveredLast24h: terkirim24,
+    backlogHealthy: umurTertua <= SOCIAL_POLICY.maxAgeHours};
 }
 
 export async function issueSocialToken(db: Client, label: unknown, now = Date.now()) {

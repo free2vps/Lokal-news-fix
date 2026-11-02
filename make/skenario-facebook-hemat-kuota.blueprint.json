@@ -1,5 +1,5 @@
 {
-  "name": "portal-hub — posting Facebook tiap 3 jam (hemat kuota gratis)",
+  "name": "portal-hub — posting Facebook: selalu berita terbaru, maks 16/hari",
   "flow": [
     {
       "id": 1,
@@ -8,7 +8,7 @@
       "parameters": {
         "handleErrors": false,
         "useNewZLibCompression": false,
-        "url": "https://lokal-news-fix-ujsf.vercel.app/api/hub/social?action=pull&max=2",
+        "url": "https://lokal-news-fix-ujsf.vercel.app/api/hub/social?action=pull&max=2&cap=16",
         "method": "get",
         "headers": [
           {

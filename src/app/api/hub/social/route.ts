@@ -27,7 +27,8 @@ export async function POST(request:Request){
       const db=getHubDb();
       if(!previewOk)return errorJson('Penarikan media sosial dibatasi Preview webhub.',403);
       if(!(await verifySocialToken(db,request.headers.get('authorization'))))return errorJson('Token tidak valid atau sudah dicabut.',401);
-      if(action==='pull')return reply(await claimBatch(db,{max:Number(url.searchParams.get('max'))||undefined,label:'make'}));
+      const cap=Number(url.searchParams.get('cap'))||undefined;
+      if(action==='pull')return reply(await claimBatch(db,{max:Number(url.searchParams.get('max'))||undefined,label:'make',cap}));
       const body=await readJson(request);
       return reply(await acknowledge(db,body.results,'make'));
     }catch(e){return errorJson(msg(e),409);}

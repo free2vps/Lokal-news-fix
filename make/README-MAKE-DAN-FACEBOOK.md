@@ -1,6 +1,6 @@
 # Hubungkan Make.com + Facebook Page
 
-Panduan ini **tidak menambah kode baru**. Semua yang dibutuhkan sudah ada di Hub:
+Panduan ini memakai endpoint yang sudah ada di Hub (r42 menambahkan aturan kesegaran):
 antrean media sosial (`hub_social_queue_v2`), penarikan bertoken, dan konfirmasi kirim.
 
 Yang Anda lakukan hanya menyalakan jalurnya.
@@ -48,7 +48,43 @@ Bawaan: **tiap 180 menit** (3 jam). Bisa diubah di **Run scenario → At regular
 
 ---
 
-## Kenapa hanya 2 berita per putaran
+## Aturan pemilihan berita yang diposting
+
+Ini bagian yang **paling penting**, karena menjawab pertanyaan
+*"kalau 8 berita terbit tiap jam, antrean akan menumpuk dan yang diposting jadi berita lama"*.
+
+Jawaban singkatnya: **antrean tidak lagi menumpuk, karena berita lama tidak pernah diposting.**
+
+| Aturan | Nilai |
+|---|---|
+| Yang diambil | **paling baru dulu**, bukan yang paling lama menunggu |
+| Umur maksimum | **6 jam**. Lebih dari itu → ditandai basi (`STALE_UNPOSTED`), tidak diposting |
+| Kuota | **16 kiriman / 24 jam** (bergulir) |
+| Kalau kuota habis | Berhenti, tidak menumpuk untuk besok |
+
+Contoh nyata, 8 berita terbit sekaligus pada pukul 09.00:
+
+| Make jalan | Yang diposting | Yang terjadi pada sisanya |
+|---|---|---|
+| 12.00 | 2 berita (umur 3 jam) | 6 menunggu |
+| 15.00 | 2 berita (umur 6 jam) | 4 menunggu |
+| 18.00 | **tidak ada** | 4 sisanya dibuang sebagai basi |
+
+Jadi yang tampil di Facebook **selalu berita segar**, dan antrean **kembali bersih**,
+bukan menggunung sampai berhari-hari.
+
+### Konsekuensinya, dan ini disengaja
+
+Mayoritas berita **tidak** akan sampai ke Facebook — hanya sekitar 16 per hari.
+Itu bukan kerusakan, itu pilihan: halaman Facebook berisi **sorotan**, bukan salinan seluruh situs.
+Membanjiri halaman dengan 190 postingan sehari juga akan membuat orang berhenti mengikuti.
+
+Kalau Anda ingin lebih banyak, naikkan `cap` di URL blueprint (maksimal 48) —
+tapi kuota gratis Make (1.000 operasi/bulan) hanya cukup untuk sekitar 16–20 per hari.
+
+---
+
+## Kenapa 2 berita per putaran
 
 Kuota gratis Make adalah **1.000 operasi/bulan**. Satu putaran memakai:
 
@@ -60,13 +96,17 @@ Kuota gratis Make adalah **1.000 operasi/bulan**. Satu putaran memakai:
 
 | Setelan | Operasi/bulan | Muat gratis? |
 |---|---|---|
-| Tiap 3 jam, **2** berita | 7 putaran × 4 = **~840** | ✅ ya |
-| Tiap 3 jam, 4 berita | 7 × 6 = ~1.260 | ❌ tidak |
-| Tiap 1 jam, 2 berita | 19 × 4 = ~2.280 | ❌ tidak |
+| Tiap 3 jam, **2** berita | 8 putaran × 4 = **~960** | ✅ pas |
+| Tiap 3 jam, 4 berita | ~1.440 | ❌ tidak |
+| Tiap 1 jam, 2 berita | ~2.280 | ❌ tidak |
 
 Kalau nanti butuh lebih banyak, naik ke paket Core (±Rp150 rb/bulan).
 
----
+### Yang berubah dari versi sebelumnya
+
+Versi lama mengambil **yang paling lama menunggu dulu** dan tidak punya batas umur.
+Akibatnya, begitu berita terbit lebih cepat daripada laju posting, yang diposting justru berita
+berumur berhari-hari. Sekarang dibalik: **terbaru dulu + buang yang basi.**
 
 ## Langkah 3 — Hubungkan Facebook Page
 
@@ -110,19 +150,22 @@ Setelah skenario berjalan, jalankan sekali secara manual (**Run once**), lalu pe
 | `401 Token tidak valid atau sudah dicabut` | Token salah, atau sudah dicabut. Buat token baru. |
 | `403 Penarikan media sosial dibatasi` | `HUB_WRITE_TARGET` belum `production`/`both`. |
 | `409 Siapkan tabel antrean media sosial dahulu` | Langkah `prepare` belum dijalankan. |
-| `count: 0` | Antrean kosong — belum ada berita baru sejak putaran sebelumnya. Normal. |
+| `count: 0` + `reason: QUEUE_EMPTY` | Antrean kosong — belum ada berita baru. Normal. |
+| `count: 0` + `reason: NO_FRESH_ITEMS` | Ada antrean, tapi semuanya sudah lewat 6 jam. Normal. |
+| `count: 0` + `reason: DAILY_CAP_REACHED` | Kuota 16/hari sudah terpakai. Normal, lanjut besok. |
 | Facebook: `(#200) The user hasn't authorized the application` | Belum menyetujui izin halaman. Ulangi Add connection. |
 
 ---
 
-## Satu hal yang harus Anda tahu
+## Soal posting dobel
 
-Konfirmasi kirim bersifat **"paling sedikit sekali"**, bukan "tepat sekali".
+Dulu ada risiko: kalau lapor "sudah" gagal, artikel bisa terkirim ulang 6 jam kemudian.
 
-Kalau modul 4 (lapor "sudah") gagal, artikel itu **bisa muncul lagi di Facebook setelah 6 jam**.
-Sebelum menyalahkan sistem, **periksa dulu halaman Facebook Anda** — mungkin sudah terkirim.
+**Risiko itu sekarang hilang.** Karena umur maksimum 6 jam sama dengan masa tenggang klaim,
+item yang terlambat dilaporkan sudah dianggap basi dan **tidak diposting ulang**.
 
-Ini disengaja: lebih baik sesekali dobel daripada berita hilang tanpa terkirim.
+Yang dikorbankan: kalau posting gagal total **dan** laporannya juga gagal, berita itu tidak dicoba lagi.
+Untuk berita, itu pertukaran yang wajar — berita 6 jam terlambat tidak layak diposting.
 
 ---
 

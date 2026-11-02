@@ -84,11 +84,15 @@ test('stage9 ack marks delivered; missing ack returns items after lease; failure
     assert.equal(st.failed, 1);
     // Item ke-4 belum di-ack: tetap claimed sampai lease 6 jam habis. Sisa 2 item masih pending.
     assert.equal((await claimBatch(db, {max: 4, now: NOW + 2000, env: {}} as any)).count, 2);
+    // KEBIJAKAN BARU (r42): item yang belum di-ack tetap diklaim, tapi setelah lease habis umur
+    // beritanya sudah lewat 6 jam → ditandai basi, TIDAK diposting ulang.
+    // Efek sampingnya menguntungkan: posting dobel gara-gara ack hilang tidak mungkin terjadi.
     const afterLease = await claimBatch(db, {max: 4, now: NOW + SOCIAL_POLICY.claimLeaseMs + 500, env: {}} as any);
-    assert.equal(afterLease.count, 1, 'hanya item tanpa ack yang kembali ke antrean');
+    assert.equal(afterLease.count, 0, 'berita berumur >6 jam tidak boleh diposting telat');
+    assert.equal(afterLease.expiredNow, 1, 'item tanpa ack dibuang sebagai basi');
     await assert.rejects(() => acknowledge(db, [{deliveryKey: 'bukan-hex', ok: true}]), /ACK_INVALID/);
     const requeued = await requeueFailed(db, NOW + 9000);
-    assert.ok(requeued.requeued >= 1);
+    assert.ok(requeued.requeued >= 1, 'item gagal masih bisa dikembalikan manual dari panel');
   } finally { await db.close(); }
 });
 
