@@ -145,3 +145,28 @@ test('kebijakan baru tercatat dan bisa dibaca panel', async () => {
     assert.equal(s.deliveredLast24h, 0);
   } finally { await db.close(); }
 });
+
+test('gambar ikut terkirim bila hak sumber dinyatakan', async () => {
+  const db = await fixture();
+  try {
+    const now = Date.now();
+    const id = await terbitkan(db, 1, now - 3600000);
+    await db.execute({sql: "UPDATE hub_items SET source_image_url=? WHERE id=?", args: ['https://cdn.contoh.id/foto.jpg', id]});
+    await enqueuePublished(db, now);
+    const out = await claimBatch(db, {max: 1, label: 'make', now, env: {} as any});
+    assert.equal(out.items[0].image, 'https://cdn.contoh.id/foto.jpg');
+  } finally { await db.close(); }
+});
+
+test('gambar TIDAK dikirim bila hak sumber belum dinyatakan', async () => {
+  const db = await fixture();
+  try {
+    const now = Date.now();
+    const id = await terbitkan(db, 2, now - 3600000);
+    await db.execute({sql: "UPDATE hub_items SET source_image_url=? WHERE id=?", args: ['https://cdn.contoh.id/foto.jpg', id]});
+    await db.execute("UPDATE hub_sources SET rights_status='metadata_only'");
+    await enqueuePublished(db, now);
+    const out = await claimBatch(db, {max: 1, label: 'make', now, env: {} as any});
+    assert.equal(out.items[0].image, null, 'tanpa hak, gambar tidak boleh dipakai');
+  } finally { await db.close(); }
+});

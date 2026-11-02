@@ -152,6 +152,32 @@ Kalau Facebook menolak, pesan galatnya akan menyebut izin apa yang kurang — ki
 
 ---
 
+## Isi data yang diterima Make
+
+Setiap berita di antrean berbentuk seperti ini:
+
+```json
+{
+  "deliveryKey": "32 huruf hex — dipakai saat lapor 'sudah'",
+  "title": "Judul hasil olahan redaktur",
+  "summary": "Ringkasan 2–3 kalimat",
+  "articleUrl": "https://situs-anda/berita/slug  ← selalu domain portal sendiri",
+  "sourceUrl": "https://sumber-asli/...",
+  "image": "https://cdn-sumber/foto.jpg, atau null",
+  "category": "Daerah", "region": "NTB",
+  "publishedAt": "2026-11-02T16:00:00.000Z",
+  "ageHours": 2
+}
+```
+
+`articleUrl` **selalu** mengarah ke halaman portal Anda, bukan ke situs sumber — jadi pembaca
+masuk ke portal dulu. Tautan sumber tetap dikirim di `sourceUrl` bila Anda ingin mencantumkannya.
+
+`image` bernilai `null` bila hak sumber belum dinyatakan `permission_confirmed`.
+Dalam keadaan itu Facebook tetap menampilkan gambar, diambil otomatis dari `og:image`
+halaman artikel Anda. Jadi tidak perlu tindakan tambahan.
+
+
 ## Cara memastikan berhasil
 
 Setelah skenario berjalan, jalankan sekali secara manual (**Run once**), lalu periksa:

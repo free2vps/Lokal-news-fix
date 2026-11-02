@@ -85,6 +85,8 @@ export type SocialItem = {
   deliveryKey: string; itemId: string; version: number; title: string; summary: string;
   sourceName: string; sourceUrl: string; articleUrl: string; articleUrlSource: 'site' | 'original';
   publishedAt: string | null; category: string | null; region: string | null; attempts: number;
+  /** Gambar asli penerbit (bukan di-rehost). null bila hak sumber belum dinyatakan. */
+  image: string | null;
   /** Umur berita dalam jam saat diambil — Make bisa menolak memposting bila terlalu tua. */
   ageHours: number;
 };
@@ -95,8 +97,8 @@ export function siteBase(env: NodeJS.ProcessEnv = process.env) {
 }
 
 async function itemPayload(db: Client, itemId: string, version: number, deliveryKey: string, attempts: number, env: NodeJS.ProcessEnv, now = Date.now()): Promise<SocialItem | null> {
-  const row = (await db.execute({sql: `SELECT i.editorial_title,i.source_title,i.editorial_summary,i.source_snippet,i.original_url,i.editorial_category,i.source_published_at,
-      s.name source_name,s.region,o.snapshot_json
+  const row = (await db.execute({sql: `SELECT i.editorial_title,i.source_title,i.editorial_summary,i.source_snippet,i.original_url,i.editorial_category,i.source_published_at,i.source_image_url,
+      s.name source_name,s.region,s.rights_status,o.snapshot_json
     FROM hub_items i JOIN hub_sources s ON s.id=i.source_id
     LEFT JOIN hub_publish_outbox o ON o.item_id=i.id AND o.approved_version=? AND o.status='published'
     WHERE i.id=?`, args: [version, itemId]})).rows[0];
@@ -119,6 +121,10 @@ async function itemPayload(db: Client, itemId: string, version: number, delivery
     category: row.editorial_category ? String(row.editorial_category) : null,
     region: row.region ? String(row.region) : null, attempts,
     ageHours: row.source_published_at ? Math.max(0, Math.round((now - Date.parse(String(row.source_published_at))) / 3600000)) : 0,
+    // Sama seperti halaman artikel: gambar hanya dipakai bila hak sumber sudah dinyatakan.
+    // Bila null, Facebook tetap mengambil gambar dari halaman artikel lewat og:image.
+    image: String(row.rights_status) === 'permission_confirmed' && /^https:\/\//i.test(String(row.source_image_url || ''))
+      ? String(row.source_image_url) : null,
   };
 }
 
