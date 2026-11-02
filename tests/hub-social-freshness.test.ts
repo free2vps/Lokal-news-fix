@@ -209,3 +209,16 @@ test('tanpa alamat portal sama sekali, sistem jujur menyebut tautan jatuh ke sum
     assert.equal(out.items[0].articleUrl, 'https://satu.example.org/1');
   } finally { await db.close(); }
 });
+
+test('gambar di antrean memakai varian besar (siap untuk posting foto)', async () => {
+  const db = await fixture();
+  try {
+    const now = Date.now();
+    const id = await terbitkan(db, 3, now - 3600000);
+    await db.execute({sql: "UPDATE hub_items SET source_image_url=? WHERE id=?", args: ['https://cdn.contoh.id/foto_169.jpeg?w=360&q=90', id]});
+    await enqueuePublished(db, now);
+    const out = await claimBatch(db, {max: 1, label: 'make', now, env: {} as any});
+    assert.match(String(out.items[0].image), /w=1200/, 'harus varian besar');
+    assert.match(String(out.items[0].image), /q=90/, 'parameter lain tetap');
+  } finally { await db.close(); }
+});

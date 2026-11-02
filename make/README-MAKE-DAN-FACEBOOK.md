@@ -279,6 +279,42 @@ Tambahkan variabel `HUB_PUBLIC_SITE_URL = https://www.portal-hub.online` di Verc
 (Production). Variabel itu didahulukan, jadi tautan langsung berpindah tanpa mengubah kode.
 
 
+## Kenapa bentuk postingan bisa berbeda-beda
+
+Dua postingan bisa tampil berbeda meski dari portal yang sama:
+
+| Bentuk | Yang terlihat |
+|---|---|
+| **Kartu kecil** | Gambar mungil di kiri, judul + keterangan di kanan |
+| **Kartu besar** | Gambar selebar postingan, judul di bawahnya |
+
+Yang menentukan **bukan** modul Make, melainkan **ukuran gambar asli** di halaman artikel:
+
+- gambar ≥ 600×315 px → Facebook memilih kartu **besar**
+- gambar < 600 px → Facebook memilih kartu **kecil**
+
+Portal sebelumnya memakai gambar `?w=360` (360×203 piksel) dari CDN penerbit — di bawah
+ambang itu. Sejak r48, halaman artikel meminta varian **`?w=1200`** (1200×675) dari URL
+penerbit yang sama: tidak menyalin, tidak menyimpan ulang, hanya parameter ukuran.
+
+### Batasnya — perlu Anda tahu
+
+Perbaikan ini **hanya berhasil bila CDN penerbit mengenali parameter ukuran**
+(`w=`, `width=`, `maxwidth=`). CDN detik mendukungnya (sudah diuji: `?w=1200` → 1200×675).
+Sebagian CDN lain tidak, dan untuk sumber seperti itu gambarnya tetap kecil.
+
+Karena itu, kalau ingin bentuk **selalu sama** apa pun sumbernya, pilihan lain adalah
+memakai modul **Facebook Pages → Create a Post with Photos** di Make, dengan
+`Photos → URL = {{2.image}}`. Payload Hub sudah mengirim `image` dalam versi besar.
+Konsekuensinya: postingan menjadi **foto dengan keterangan**, bukan kartu tautan —
+nama domain portal tidak muncul sebagai kartu.
+
+### Postingan lama tidak berubah
+
+Facebook menyimpan hasil jelajahnya sendiri (cache). Postingan yang sudah terbit tetap
+memakai gambar lama. Untuk menguji perbaikan, tunggu postingan berikutnya.
+
+
 ## Cara memastikan berhasil
 
 Setelah skenario berjalan, jalankan sekali secara manual (**Run once**), lalu periksa:

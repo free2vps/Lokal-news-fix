@@ -1,6 +1,7 @@
 import type {Client} from '@libsql/client';
 import {createHash, randomBytes, randomUUID, timingSafeEqual} from 'node:crypto';
 import {articleSlug} from './publish-delivery';
+import {largeImage} from '@/lib/image-variant';
 
 /**
  * Langkah 9a: antrean kiriman ke media sosial (model PULL) untuk Make.com.
@@ -143,8 +144,10 @@ async function itemPayload(db: Client, itemId: string, version: number, delivery
     ageHours: row.source_published_at ? Math.max(0, Math.round((now - Date.parse(String(row.source_published_at))) / 3600000)) : 0,
     // Sama seperti halaman artikel: gambar hanya dipakai bila hak sumber sudah dinyatakan.
     // Bila null, Facebook tetap mengambil gambar dari halaman artikel lewat og:image.
+    // Varian besar: kalau Make memakai "Create a Post with Photos", gambar 360 px akan
+    // tampil buram. Untuk kartu tautan, ukuran og:image di halaman artikel yang menentukan.
     image: String(row.rights_status) === 'permission_confirmed' && /^https:\/\//i.test(String(row.source_image_url || ''))
-      ? String(row.source_image_url) : null,
+      ? largeImage(String(row.source_image_url)).url : null,
   };
 }
 

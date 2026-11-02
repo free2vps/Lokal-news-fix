@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { getBySlug, getRelated, getLatest } from '@/lib/queries';
 import { SITE } from '@/config/site';
+import { ukuranGambar } from '@/lib/image-variant';
 import { regionName, splitByRegion } from '@/config/regions';
 import { formatDate, slugify } from '@/lib/utils';
 import type { Article } from '@/lib/types';
@@ -29,7 +30,9 @@ type P = { params: Promise<{ slug: string }> };
 
 /** Fallback kartu berbagi; bukan bukti foto memenuhi rekomendasi Discover. */
 const card = (a: Article) => ({ url: `/api/og?t=${encodeURIComponent(a.title)}&s=${encodeURIComponent(a.source_name)}&n=${encodeURIComponent(SITE.name)}`, width: 1200, height: 630 });
-const shareImage = (a: Article) => (a.image_url ? { url: a.image_url, ...(a.image_width && a.image_height ? { width:a.image_width,height:a.image_height } : {}) } : card(a));
+// Kartu berbagi memakai varian BESAR gambar penerbit: dengan ukuran 360 px, Facebook
+// memilih kartu kecil (gambar mungil di kiri) — bukan kartu lebar seperti yang diharapkan.
+const shareImage = (a: Article) => (a.image_url ? ukuranGambar(a.image_url, a.image_width, a.image_height) : card(a));
 
 export async function generateMetadata({ params }: P): Promise<Metadata> {
   const a = await getBySlug((await params).slug);
