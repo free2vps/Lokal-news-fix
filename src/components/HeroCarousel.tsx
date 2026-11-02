@@ -1,4 +1,5 @@
 'use client';
+import {imgSrc, UKURAN_TAMPIL} from '@/lib/image-variant';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import type { Article } from '@/lib/types';
@@ -16,7 +17,7 @@ export default function HeroCarousel({ slides }: { slides: Article[] }) {
     const t = setInterval(() => setI((x) => (x + 1) % n), 5500);
     return () => clearInterval(t);
   }, [playing, hold, n]);
-  useEffect(() => { const nx = slides[(i + 1) % n]?.image_url; if (nx) new Image().src = nx; }, [i, n, slides]); // siapkan gambar berikutnya
+  useEffect(() => { const nx = slides[(i + 1) % n]?.image_url; if (nx) new Image().src = imgSrc(nx, UKURAN_TAMPIL.hero); }, [i, n, slides]); // siapkan gambar berikutnya
   if (!n) return null;
 
   const a = slides[i];
@@ -29,7 +30,7 @@ export default function HeroCarousel({ slides }: { slides: Article[] }) {
       <div key={a.id} className="fade-in" aria-live={playing ? 'off' : 'polite'}>
         <Link href={`/berita/${a.slug}`} className="relative block aspect-[4/3] sm:aspect-[16/10]">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          {a.image_url && <img src={a.image_url} alt="" fetchPriority={i === 0 ? 'high' : 'auto'} referrerPolicy="no-referrer" className="absolute inset-0 h-full w-full object-cover object-[50%_30%]" />}
+          {a.image_url && <img src={imgSrc(a.image_url, UKURAN_TAMPIL.hero)} alt="" fetchPriority={i === 0 ? 'high' : 'auto'} referrerPolicy="no-referrer" className="absolute inset-0 h-full w-full object-cover object-[50%_30%]" />}
           <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/30 to-transparent" />
           <div className="absolute inset-x-0 bottom-0 p-4 pr-28 text-white sm:p-6 sm:pr-32">
             <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${a.section === 'hiburan' ? 'bg-pop text-white' : 'bg-accent text-[#1b1405]'}`}>{a.category}</span>

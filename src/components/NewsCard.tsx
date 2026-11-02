@@ -1,10 +1,11 @@
+import {imgSrc, UKURAN_TAMPIL} from '@/lib/image-variant';
 import Link from 'next/link';
 import type { Article } from '@/lib/types';
 import { slugify, timeAgo } from '@/lib/utils';
 
 const Thumb = ({ a }: { a: Article }) => a.image_url
   // eslint-disable-next-line @next/next/no-img-element
-  ? <img src={a.image_url} alt={a.title} loading="lazy" decoding="async" referrerPolicy="no-referrer" width={a.image_width||800} height={a.image_height||450} className="h-full w-full object-cover" />
+  ? <img src={imgSrc(a.image_url, UKURAN_TAMPIL.kartu)} alt={a.title} loading="lazy" decoding="async" referrerPolicy="no-referrer" width={a.image_width||800} height={a.image_height||450} className="h-full w-full object-cover" />
   : <div className="grid h-full w-full place-items-center bg-brand/10 font-serif text-4xl text-brand/40" aria-hidden>{a.category[0]}</div>;
 
 const Badge = ({ c }: { c: string }) => (

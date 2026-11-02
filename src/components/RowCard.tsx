@@ -1,3 +1,4 @@
+import {imgSrc, UKURAN_TAMPIL} from '@/lib/image-variant';
 import Link from 'next/link';
 import type { Article } from '@/lib/types';
 import { timeAgo } from '@/lib/utils';
@@ -13,7 +14,7 @@ export default function RowCard({ a }: { a: Article }) {
       </div>
       <Link href={`/berita/${a.slug}`} className="block aspect-[4/3] w-28 shrink-0 overflow-hidden rounded-md bg-line/50 sm:w-40" aria-hidden tabIndex={-1}>
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        {a.image_url ? <img src={a.image_url} alt="" loading="lazy" referrerPolicy="no-referrer" className="h-full w-full object-cover" /> : <div className="grid h-full place-items-center bg-brand/10 font-serif text-3xl text-brand/40">{a.category[0]}</div>}
+        {a.image_url ? <img src={imgSrc(a.image_url, UKURAN_TAMPIL.kartu)} alt="" loading="lazy" referrerPolicy="no-referrer" className="h-full w-full object-cover" /> : <div className="grid h-full place-items-center bg-brand/10 font-serif text-3xl text-brand/40">{a.category[0]}</div>}
       </Link>
     </article>
   );

@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { getBySlug, getRelated, getLatest } from '@/lib/queries';
 import { SITE } from '@/config/site';
-import { ukuranGambar } from '@/lib/image-variant';
+import { ukuranGambar, imgSrc, UKURAN_TAMPIL } from '@/lib/image-variant';
 import { regionName, splitByRegion } from '@/config/regions';
 import { formatDate, slugify } from '@/lib/utils';
 import type { Article } from '@/lib/types';
@@ -100,7 +100,7 @@ export default async function Detail({ params }: P) {
         {a.image_url && (
           <figure className="mt-5">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={a.image_url} alt={a.title} width={a.image_width ?? undefined} height={a.image_height ?? undefined} fetchPriority="high" referrerPolicy="no-referrer" decoding="async" className="aspect-[16/9] w-full rounded-lg bg-line/50 object-cover" />
+            <img src={imgSrc(a.image_url, UKURAN_TAMPIL.hero)} alt={a.title} width={a.image_width ?? undefined} height={a.image_height ?? undefined} fetchPriority="high" referrerPolicy="no-referrer" decoding="async" className="aspect-[16/9] w-full rounded-lg bg-line/50 object-cover" />
             <figcaption className="mt-1.5 text-xs text-muted">Foto: {a.image_credit || a.source_name}</figcaption>
           </figure>
         )}

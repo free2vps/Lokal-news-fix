@@ -11,7 +11,9 @@ import {prepareSummarySchema} from '../src/server/hub/domain/ai-summary';
 import {preparePublishSchema} from '../src/server/hub/domain/publish-policy';
 import {prepareSocialSchema} from '../src/server/hub/domain/social-pull';
 
-const NOW = Date.parse('2026-10-30T10:00:00Z');
+// Tanggal RELATIF, bukan tanggal mati. Penerbitan menolak berita lebih tua dari 72 jam,
+// sehingga NOW yang dipatok akan gagal sendiri tiga hari kemudian (pernah terjadi).
+const NOW = Date.now();
 const SRC = 'aaaaaaaa-2222-2222-2222-222222222222';
 
 async function fixture() {

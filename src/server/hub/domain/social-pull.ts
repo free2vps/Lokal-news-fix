@@ -1,7 +1,7 @@
 import type {Client} from '@libsql/client';
 import {createHash, randomBytes, randomUUID, timingSafeEqual} from 'node:crypto';
 import {articleSlug} from './publish-delivery';
-import {largeImage} from '@/lib/image-variant';
+import {largeImage} from '../../../lib/image-variant';
 
 /**
  * Langkah 9a: antrean kiriman ke media sosial (model PULL) untuk Make.com.

@@ -1,3 +1,4 @@
+import {imgSrc, UKURAN_TAMPIL} from '@/lib/image-variant';
 import Link from 'next/link';
 import type { Article } from '@/lib/types';
 import { timeAgo } from '@/lib/utils';
@@ -9,7 +10,7 @@ export default function FeedRow({ a }: { a: Article }) {
     <article className="flex gap-4 border-b border-line/70 py-4 first:pt-0 last:border-0">
       <Link href={`/berita/${a.slug}`} tabIndex={-1} aria-hidden className="relative block aspect-video w-36 shrink-0 self-start overflow-hidden rounded-xl bg-line/50 sm:w-60">
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        {a.image_url ? <img src={a.image_url} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" className="h-full w-full object-cover object-[50%_30%]" />
+        {a.image_url ? <img src={imgSrc(a.image_url, UKURAN_TAMPIL.baris)} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" className="h-full w-full object-cover object-[50%_30%]" />
           : <div className="grid h-full place-items-center bg-brand/10 font-serif text-3xl text-brand/40">{a.category[0]}</div>}
       </Link>
       <div className="min-w-0 flex-1">

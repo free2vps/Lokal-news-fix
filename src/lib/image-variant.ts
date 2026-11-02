@@ -65,3 +65,17 @@ export function ukuranGambar(
 export function layakKartuBesar(width: number | null | undefined, height: number | null | undefined) {
   return Boolean(width && height && width >= 600 && height >= 315);
 }
+
+/**
+ * Ukuran yang dipakai tiap tempat di portal. Satu sumber gambar bisa dipakai untuk
+ * beberapa tempat sekaligus, jadi targetnya dibedakan:
+ *   hero/artikel 1200 → tampil lebar, wajib tajam
+ *   kartu        800  → tampil ~300–400 px, cukup tajam di layar retina
+ *   baris kecil   480  → tampil < 200 px
+ * Jangan pernah menurunkan: URL yang sudah besar dibiarkan.
+ */
+export const UKURAN_TAMPIL = { hero: 1200, kartu: 800, baris: 480 } as const;
+
+export function imgSrc(url: string | null | undefined, target: number = UKURAN_TAMPIL.kartu): string {
+  return largeImage(url, target).url;
+}
