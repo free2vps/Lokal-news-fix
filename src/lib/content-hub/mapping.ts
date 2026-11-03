@@ -1,6 +1,7 @@
 import { sourceSeo } from './seo';
 import { createHash } from 'crypto';
 import { detectRegion } from '@/config/regions';
+import { deteksiPemda } from '@/lib/pemda/deteksi';
 import { slugify, refineCategory, NEWS_CATEGORIES, FUN_CATEGORIES } from '../utils';
 import type { Trend } from '../types';
 import { isSiteNameTitle, meaningfulTags } from '@/lib/quality';
@@ -46,6 +47,16 @@ export function mapHubArticle(value: unknown, now = Date.now()) {
   if (!title) return null;
   const full = `${title} ${summary}`;
   const region = detectRegion(full);
+
+  // GERBANG PEMDA — MODE BAYANGAN (default).
+  // Menghitung berapa artikel yang menyebut salah satu dari 11 pemda NTB, TANPA menolak apa pun.
+  // Penolakan hanya terjadi bila pemilik menyetel LOCALITY_GATE=block; jangan diaktifkan
+  // sebelum angkanya diukur beberapa hari (dampaknya besar: bisa memangkas >50% pasokan).
+  const pemda = deteksiPemda(title, summary);
+  if (!pemda.pemda.length) {
+    if (process.env.LOCALITY_GATE === 'block') return null;
+    if (process.env.LOCALITY_GATE !== 'off') console.info('[lokality] non-pemda:', title.slice(0, 80));
+  }
   const section = item.contentGroup === 'entertainment' ? 'hiburan' : 'berita';
   return {
     slug: `${slugify(title).slice(0,70)}-hub-${createHash('sha256').update(url).digest('hex').slice(0,12)}`,
