@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {mergeFeed} from '../src/lib/feed-merge';
+import type {Article} from '../src/lib/types';
 
 const tanpaKomentar = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|\s)\/\/[^\n]*/g, '$1');
 const q = tanpaKomentar(readFileSync('src/lib/queries.ts', 'utf8'));
@@ -9,20 +10,22 @@ const q = tanpaKomentar(readFileSync('src/lib/queries.ts', 'utf8'));
 type A = {id: number; slug: string; source_url: string; published_at: string; title: string; jenis_sumber?: string; category?: string; section?: string};
 const buat = (id: number, tgl: string, jenis = 'media'): A =>
   ({id, slug: `s-${id}`, source_url: `https://x.test/${id}`, published_at: tgl, title: `Berita ${id}`, jenis_sumber: jenis, category: 'Info Pemda', section: 'berita'});
+// mergeFeed hanya butuh identitas artikel; sisanya tidak dipakai oleh fungsi ini.
+const artikel = (daftar: A[]) => daftar as unknown as Article[];
 
 test('daftar kategori: rilis pemda didahulukan walau tanggalnya lebih tua', () => {
   // Simulasi: snapshot editorial hanya berisi 72 jam terakhir (12 Nov), rilis 9–10 Nov.
   const snapshot = [buat(1, '2026-11-12T01:00:00Z'), buat(2, '2026-11-11T20:00:00Z')];
   const sorot = [buat(1107, '2026-11-10T00:00:00Z', 'rilis'), buat(1108, '2026-11-09T00:00:00Z', 'rilis')];
-  const hasil = mergeFeed([...sorot, ...snapshot], [], 12, 0) as A[];
+  const hasil = mergeFeed(artikel([...sorot, ...snapshot]), [], 12, 0) as unknown as A[];
   assert.deepEqual(hasil.map(a => a.id), [1107, 1108, 1, 2]);
 });
 
 test('rilis yang disorot tidak mengacaukan halaman berikutnya (LoadMore)', () => {
   const snapshot = Array.from({length: 20}, (_, i) => buat(i + 1, new Date(Date.parse('2026-11-12T01:00:00Z') - i * 3600_000).toISOString()));
   const sorot = [buat(1107, '2026-11-10T00:00:00Z', 'rilis'), buat(1108, '2026-11-09T00:00:00Z', 'rilis')];
-  const h1 = mergeFeed([...sorot, ...snapshot], [], 12, 0) as A[];
-  const h2 = mergeFeed([...sorot, ...snapshot], [], 12, 12) as A[];
+  const h1 = mergeFeed(artikel([...sorot, ...snapshot]), [], 12, 0) as unknown as A[];
+  const h2 = mergeFeed(artikel([...sorot, ...snapshot]), [], 12, 12) as unknown as A[];
   assert.equal(h1[0].id, 1107, 'rilis di posisi teratas halaman 1');
   assert.equal(h1.length, 12);
   assert.ok(!h2.some(a => a.id === 1107 || a.id === 1108), 'rilis tidak boleh muncul dua kali di halaman 2');
