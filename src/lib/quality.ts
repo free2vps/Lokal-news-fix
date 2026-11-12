@@ -17,6 +17,11 @@ const STOP_TAGS = new Set([
   // kata sambung/bantu 3 huruf — bukan topik, walau pendek
   'dan', 'yang', 'dari', 'ini', 'itu', 'ada', 'oleh', 'para', 'saat', 'usai', 'kata', 'ujar',
   'bagi', 'atas', 'juga', 'agar', 'jika', 'bila', 'serta', 'per', 'ke', 'di', 'the', 'and',
+  // Terbukti menjadi URL 404 di Search Console (3–7 Nov 2026): kata umum yang pernah lolos
+  // jadi halaman topik lalu gugur saat artikelnya berkurang. Menahannya di sini mencegah
+  // URL lahir-hilang yang menghabiskan jatah crawl Google.
+  'ritel', 'curamnor', 'kontrakan', 'tangkap', 'serang', 'motor', 'ekspresi', 'dampak',
+  'makin', 'muncul', 'sebut', 'ungkap', 'bakal', 'digelar', 'diresmikan', 'diminta',
 ]);
 
 /** Tag dianggap layak bila bukan kata umum, bukan angka, dan punya isi. */

@@ -745,7 +745,9 @@ export async function runAutoEditor(db: Client, opts: RunOptions = {}) {
       const {syncYoutube} = await import('./social');
       const out: any = await syncYoutube(db, opts.master);
       const n = Number(out?.count || 0);
-      push('sync_youtube', true, n ? `${n} video playlist YouTube ditarik` : 'Playlist YouTube tidak mengembalikan video', n);
+      // Dulu 0 video dilaporkan "✔" sehingga masalahnya tak terlihat. Sekarang 0 = gagal,
+      // dan snapshot lama tetap dipakai di beranda (storeDataset tidak jalan saat galat).
+      push('sync_youtube', n > 0, n ? `${n} video playlist YouTube ditarik` : 'Playlist YouTube tidak mengembalikan video', n);
     }
   } catch (e) {
     // Sama seperti tren: kegagalan YouTube tidak boleh menggagalkan penarikan berita.
@@ -784,8 +786,16 @@ export async function runAutoEditor(db: Client, opts: RunOptions = {}) {
   if (published || steps.some(s => s.step === 'image_repair' && (s.count || 0) > 0) || steps.some(s => s.step === 'trends' && s.ok)) {
     try {
       const {revalidatePath} = await import('next/cache');
-      revalidatePath('/', 'layout');
-      push('revalidate', true, 'Beranda portal disegarkan agar perubahan langsung terlihat', 1);
+      // JANGAN memakai revalidatePath dengan argumen kedua 'layout'.
+      // Argumen kedua 'layout' membatalkan cache SELURUH pohon halaman di bawah layout akar —
+      // artinya setiap berita, kategori, wilayah, topik, dan pemda dibuat ulang. Dipanggil
+      // setiap putaran (19×/hari), ini meledakkan ISR Writes Vercel sampai 203K/200K
+      // (kuota paket terlampaui, 3 Nov 2026) dan ikut mendorong Fluid Active CPU ke 92%.
+      // Yang benar: segarkan halaman yang isinya benar-benar berubah.
+      revalidatePath('/');
+      revalidatePath('/sitemap.xml');
+      revalidatePath('/sitemap-news.xml');
+      push('revalidate', true, 'Beranda + sitemap disegarkan (tanpa membatalkan seluruh halaman)', 3);
     } catch { /* di luar Next (mis. tes) tidak ada cache yang perlu disegarkan */ }
   }
 

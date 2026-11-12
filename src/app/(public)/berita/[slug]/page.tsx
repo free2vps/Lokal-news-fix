@@ -61,7 +61,18 @@ export default async function Detail({ params }: P) {
   const abs = (u: string) => (u.startsWith('http') ? u : SITE.url + u);
   const region = regionName(a.region);
   const used = new Set<string>();
-  const schemaImage = a.image_url ? { '@type': 'ImageObject', url: abs(a.image_url), ...(a.image_width && a.image_height ? { width: a.image_width, height: a.image_height } : {}), ...(a.image_credit ? { creditText: a.image_credit } : {}) } : null;
+  // `creator` dan `copyrightNotice` diminta Google (Search Console → Metadata Gambar,
+  // 24 item "dapat ditingkatkan", 3 Nov 2026). Keduanya diisi dari data yang MEMANG ada:
+  // nama penerbit. Kolom `license` dan `acquireLicensePage` sengaja TIDAK diisi — kita tidak
+  // memegang lisensi gambar siapa pun, dan mengarang alamat lisensi lebih buruk daripada kosong.
+  const schemaImage = a.image_url ? {
+    '@type': 'ImageObject', url: abs(a.image_url),
+    ...(a.image_width && a.image_height ? { width: a.image_width, height: a.image_height } : {}),
+    ...(a.image_credit ? { creditText: a.image_credit } : {}),
+    ...(!a.image_credit && a.source_name ? { creditText: a.source_name } : {}),
+    creator: { '@type': 'Organization', name: a.image_credit || a.source_name },
+    copyrightNotice: `© ${a.image_credit || a.source_name}`,
+  } : null;
 
   return (
     <div className="grid gap-8 lg:grid-cols-[1fr_300px]">
