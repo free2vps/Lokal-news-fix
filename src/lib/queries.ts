@@ -216,3 +216,65 @@ const socialCached = unstable_cache(async (): Promise<{ key: string; label: stri
 export function getSocialLinks() {
   return socialCached();
 }
+
+// ── Halaman pemda ────────────────────────────────────────────────────────────
+// Tabel `pemda` + `artikel_pemda` hanya berisi pemetaan artikel → pemerintah daerah.
+// Tidak ada data karangan: jumlah dihitung dari baris yang benar-benar ada.
+export type Pemda = {
+  id: string; nama: string; nama_pendek: string; jenis: string;
+  situs: string | null; status_akses: string; izin_status: string;
+};
+const pemdaList = unstable_cache(async (): Promise<Pemda[]> => {
+  const { data } = await supabase().from('pemda')
+    .select('id,nama,nama_pendek,jenis,situs,status_akses,izin_status')
+    .order('nama_pendek', { ascending: true });
+  return (data ?? []) as Pemda[];
+}, ['pemda-list'], { revalidate: 3600, tags: [TAG_REGIONS] });
+export async function getPemdaList() { return pemdaList(); }
+
+export async function getPemda(id: string) {
+  const all = await pemdaList();
+  return all.find(p => p.id === id) ?? null;
+}
+
+const pemdaArticlesCached = unstable_cache(async (id: string, limit: number): Promise<Article[]> => {
+  const { data: links } = await supabase().from('artikel_pemda')
+    .select('artikel_id').eq('pemda_id', id).limit(400);
+  const ids = (links ?? []).map(r => (r as { artikel_id: number }).artikel_id);
+  if (!ids.length) return [];
+  const { data } = await supabase().from('articles').select(LIST).in('id', ids)
+    .order('published_at', { ascending: false }).limit(limit);
+  return (data ?? []) as Article[];
+}, ['pemda-articles'], { revalidate: 300, tags: [TAG_ARTICLES, TAG_REGIONS] });
+export async function getPemdaArticles(id: string, limit = 24) { return pemdaArticlesCached(id, limit); }
+
+const pemdaCountsCached = unstable_cache(async (): Promise<Record<string, number>> => {
+  const { data } = await supabase().from('artikel_pemda').select('pemda_id').limit(5000);
+  const out: Record<string, number> = {};
+  for (const r of data ?? []) { const k = String((r as { pemda_id: string }).pemda_id); out[k] = (out[k] || 0) + 1; }
+  return out;
+}, ['pemda-counts'], { revalidate: 300, tags: [TAG_ARTICLES, TAG_REGIONS] });
+export async function getPemdaCounts() { return pemdaCountsCached(); }
+
+// ── Banner / pengumuman pemda ───────────────────────────────────────────────
+// Satu slot tetap di beranda. Isinya diisi pemilik dari panel Hub; TIDAK ada data karangan:
+// kalau tidak ada baris aktif, komponen tidak dirender sama sekali.
+export type Banner = { id: number; judul: string; gambar_url: string; tautan: string | null };
+
+const bannerCached = unstable_cache(async (): Promise<Banner | null> => {
+  const hariIni = new Date().toISOString().slice(0, 10);
+  const { data } = await supabase().from('banner_pemda')
+    .select('id,judul,gambar_url,tautan,mulai,selesai,urutan')
+    .eq('aktif', true)
+    .order('urutan', { ascending: true })
+    .order('created_at', { ascending: false })
+    .limit(10);
+  const layak = (data ?? []).filter((b) => {
+    const r = b as { mulai: string | null; selesai: string | null };
+    if (r.mulai && r.mulai > hariIni) return false;      // belum mulai tayang
+    if (r.selesai && r.selesai < hariIni) return false;  // sudah lewat masa tayang
+    return true;
+  })[0];
+  return layak ? (layak as Banner) : null;
+}, ['banner-pemda'], { revalidate: 300, tags: [TAG_SITE] });
+export async function getBanner() { return bannerCached(); }

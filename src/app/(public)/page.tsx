@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { getLatest, getTrending, getMixedPage, getActiveRegions, sortByNewest, withinHours } from '@/lib/queries';
+import { getLatest, getTrending, getMixedPage, getActiveRegions, getBanner, sortByNewest, withinHours } from '@/lib/queries';
 import { slugify } from '@/lib/utils';
 import { isJobPosting } from '@/lib/quality';
 import { SITE } from '@/config/site';
@@ -10,6 +10,7 @@ import HeroCarousel from '@/components/HeroCarousel';
 import FeedRow from '@/components/FeedRow';
 import LoadMoreFeed from '@/components/LoadMoreFeed';
 import TrendingNow, { topicsOf } from '@/components/TrendingNow';
+import BannerPemda from '@/components/BannerPemda';
 import QuickCards from '@/components/QuickCards';
 import ExploreMore from '@/components/ExploreMore';
 import SocialHype from '@/components/SocialHype';
@@ -26,12 +27,12 @@ const adOn = (k: AdKey) => ADS[k].kind !== 'none' || process.env.NODE_ENV !== 'p
 
 export default async function Home() {
   const hubMode=process.env.CONTENT_HUB_ENABLED==='true';
-  const [news, fun, trending, regions, jobs, pemda, olahraga] = await Promise.all([
+  const [news, fun, trending, regions, jobs, pemda, olahraga, banner] = await Promise.all([
     getLatest({ limit: hubMode?6:9, section: 'berita' }), getLatest({ limit: hubMode?4:2, section: 'hiburan' }),
     getTrending(), getActiveRegions(), getLatest({ limit: 6, category: 'Lowongan & CPNS' }),
     // Slot di bawah carousel dahulu kosong bila gambar kurang dari 9. Sekarang diisi tetap:
     // Pemda dulu, lalu Hiburan, lalu Olahraga.
-    getLatest({ limit: 4, category: 'Info Pemda' }), getLatest({ limit: 4, category: 'Olahraga' }),
+    getLatest({ limit: 4, category: 'Info Pemda' }), getLatest({ limit: 4, category: 'Olahraga' }), getBanner(),
   ]);
   const pool: Article[] = [...news, ...fun].sort((a, b) => +new Date(b.published_at) - +new Date(a.published_at));
   // F-03: jangan pernah menampilkan instruksi admin di halaman publik.
@@ -106,6 +107,9 @@ export default async function Home() {
       <JsonLd data={{ '@context': 'https://schema.org', '@type': 'ItemList', itemListElement: pool.map((a, i) => ({ '@type': 'ListItem', position: i + 1, url: `${SITE.url}/berita/${a.slug}`, name: a.title })) }} />
 
       <QuickCards topic={topicsOf(trending)[0]} video={video} job={jobs.find((a) => isJobPosting(a.title))} regions={regions} />
+
+      {/* Slot tetap pengumuman/iklan pemda. Tidak tampil bila tidak ada banner aktif. */}
+      <BannerPemda banner={banner} />
 
       <div className={`grid gap-5 ${cols(rightTop)}`}>
         <aside className="order-2 lg:order-1"><TrendingNow items={trending} /></aside>
