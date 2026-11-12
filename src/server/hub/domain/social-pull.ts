@@ -15,7 +15,9 @@ export const SOCIAL_POLICY = {
   maxPerPull: 4,
   hardMaxPerPull: 4,
   claimLeaseMs: 6 * 3600000,
-  maxAttempts: 5,
+  /** Dikurangi dari 5 → 2: satu kali coba ulang saja. Kiriman ganda lebih merugikan daripada
+   *  satu berita yang tidak terkirim. */
+  maxAttempts: 2,
   /** Berita lebih tua dari ini TIDAK diposting; ditandai basi agar antrean tidak menumpuk. */
   maxAgeHours: 6,
   /** Batas kiriman per 24 jam — penjaga biaya Make dan penjaga agar halaman FB tidak dibanjiri. */
@@ -52,6 +54,13 @@ export async function prepareSocialSchema(db: Client) {
       last_error TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, delivered_at TEXT,
       UNIQUE(item_id,item_version))`);
     await tx.execute('CREATE INDEX IF NOT EXISTS hub_social_queue_ready ON hub_social_queue_v2(status,claimed_until)');
+    // PENJAGA KIRIMAN GANDA (gejala 12 Nov 2026: satu berita terposting 4× di Facebook).
+    // delivery_key memuat item_version, jadi begitu artikel disunting lalu disetujui ulang,
+    // versinya berubah → kunci baru → terposting LAGI. Indeks unik parsial ini membuat
+    // satu artikel mustahil punya dua baris 'delivered'. Dibuat dalam try/catch: bila basis
+    // data lama sudah telanjur berisi ganda, index tidak dibuat, tetapi penjaga di kode
+    // (enqueuePublished & claimBatch) tetap bekerja.
+    try { await tx.execute("CREATE UNIQUE INDEX IF NOT EXISTS hub_social_one_delivery ON hub_social_queue_v2(item_id) WHERE status='delivered'"); } catch { /* data lama berisi ganda */ }
     await tx.execute(`CREATE TABLE IF NOT EXISTS hub_social_runs_v2(
       id TEXT PRIMARY KEY, action TEXT NOT NULL, claimed INTEGER NOT NULL DEFAULT 0,
       delivered INTEGER NOT NULL DEFAULT 0, failed INTEGER NOT NULL DEFAULT 0,
@@ -68,18 +77,30 @@ export async function socialReady(db: Client) {
 /** Isi antrean dari outbox yang sudah berstatus published (idempoten). */
 export async function enqueuePublished(db: Client, now = Date.now()) {
   if (!(await socialReady(db))) throw Error('SOCIAL_NOT_READY');
+  // Sebelum mengambil, buang baris pending yang artikelnya sudah pernah terkirim.
+  // Ini lapis kedua: menjaga walau indeks unik tidak sempat dibuat pada data lama.
+  await db.execute({sql: `UPDATE hub_social_queue_v2 SET status='skipped',last_error='ALREADY_POSTED',updated_at=?
+      WHERE status IN ('pending','claimed') AND item_id IN
+        (SELECT item_id FROM hub_social_queue_v2 WHERE status='delivered')`,
+    args: [new Date(now).toISOString()]});
   const cutoff = new Date(now - SOCIAL_POLICY.maxAgeHours * 3600000).toISOString();
   const rows = (await db.execute({sql: `SELECT o.item_id,o.approved_version FROM hub_publish_outbox o
       JOIN hub_items i ON i.id=o.item_id
       WHERE o.status='published' AND COALESCE(i.source_published_at,o.created_at)>=?
       ORDER BY COALESCE(i.source_published_at,o.created_at) DESC,o.item_id`, args: [cutoff]})).rows;
-  let inserted = 0;
+  // Artikel yang SUDAH pernah terkirim tidak boleh masuk antrean lagi, walau versinya berubah.
+  const sudah = new Set(
+    (await db.execute({sql: "SELECT DISTINCT item_id FROM hub_social_queue_v2 WHERE status='delivered'", args: []}))
+      .rows.map(x => String(x.item_id)),
+  );
+  let inserted = 0, dilewati = 0;
   for (const r of rows) {
+    if (sudah.has(String(r.item_id))) { dilewati += 1; continue; }
     const res = await db.execute({sql: `INSERT OR IGNORE INTO hub_social_queue_v2(delivery_key,item_id,item_version,status,created_at,updated_at)
       VALUES(?,?,?,'pending',?,?)`, args: [keyFor(String(r.item_id), Number(r.approved_version)), String(r.item_id), Number(r.approved_version), new Date(now).toISOString(), new Date(now).toISOString()]});
     inserted += res.rowsAffected;
   }
-  return {examined: rows.length, inserted};
+  return {examined: rows.length, inserted, dilewati};
 }
 
 export type SocialItem = {
@@ -159,6 +180,12 @@ export async function claimBatch(db: Client, opts: {max?: number; label?: string
   const label = String(opts.label || 'make').slice(0, 60);
   await db.execute({sql: "UPDATE hub_social_queue_v2 SET status='pending',claimed_by=NULL,claimed_until=0,updated_at=? WHERE status='claimed' AND claimed_until<? AND attempts<?", args: [new Date(now).toISOString(), now, SOCIAL_POLICY.maxAttempts]});
   await db.execute({sql: "UPDATE hub_social_queue_v2 SET status='failed',claimed_by=NULL,claimed_until=0,last_error='CLAIM_EXPIRED',updated_at=? WHERE status='claimed' AND claimed_until<? AND attempts>=?", args: [new Date(now).toISOString(), now, SOCIAL_POLICY.maxAttempts]});
+  // Sebelum mengambil, buang baris pending yang artikelnya sudah pernah terkirim.
+  // Ini lapis kedua: menjaga walau indeks unik tidak sempat dibuat pada data lama.
+  await db.execute({sql: `UPDATE hub_social_queue_v2 SET status='skipped',last_error='ALREADY_POSTED',updated_at=?
+      WHERE status IN ('pending','claimed') AND item_id IN
+        (SELECT item_id FROM hub_social_queue_v2 WHERE status='delivered')`,
+    args: [new Date(now).toISOString()]});
   const cutoff = new Date(now - SOCIAL_POLICY.maxAgeHours * 3600000).toISOString();
   // Antrean tidak boleh tumbuh selamanya: yang lewat batas umur dibuang, bukan diposting telat.
   const stale = await db.execute({sql: `UPDATE hub_social_queue_v2 SET status='skipped',claimed_until=0,last_error='STALE_UNPOSTED',updated_at=?
