@@ -278,3 +278,13 @@ const bannerCached = unstable_cache(async (): Promise<Banner | null> => {
   return layak ? (layak as Banner) : null;
 }, ['banner-pemda'], { revalidate: 300, tags: [TAG_SITE] });
 export async function getBanner() { return bannerCached(); }
+
+
+// ── Draf tautan pemda ───────────────────────────────────────────────────────
+// Daftar draf TIDAK di-cache: ini ruang kerja pemilik, harus selalu keadaan terbaru.
+// `ringkasan` berasal dari kalimat asli sumber + tautan asli, bukan tulisan ulang.
+export type DrafPemda = {
+  id: number; sumber_url: string; judul: string; ringkasan: string; tanggal_sumber: string | null;
+  gambar_url: string | null; sumber_nama: string; status: 'draf' | 'disetujui' | 'ditolak';
+  slug_artikel: string | null; dibuat_at: string;
+};
