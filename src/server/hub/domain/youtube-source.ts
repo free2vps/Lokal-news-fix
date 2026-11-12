@@ -110,7 +110,16 @@ export async function fetchPlaylistViaApi(
     const bersih = body.replace(/\s+/g, ' ').trim().slice(0, 180);
     throw Error('YOUTUBE_API_' + r.status + (bersih ? ' — ' + bersih : ''));
   }
-  return mapApiResponse(await r.json().catch(() => null));
+  const payload = await r.json().catch(() => null);
+  const items = mapApiResponse(payload);
+  if (items.length) return items;
+  // GEJALA NYATA 3 Nov 2026: putaran melaporkan "✔ Playlist YouTube tidak mengembalikan video"
+  // padahal playlist-nya berisi 12 video. Versi lama mengembalikan daftar kosong tanpa sebab,
+  // sehingga (a) laporan tampak sehat, dan (b) snapshot bagus tertimpa snapshot kosong.
+  // Sekarang sebabnya dibawa: Google menyebut totalResults berapa, dan playlist mana yang dibaca.
+  const info = (payload as {pageInfo?: {totalResults?: unknown}} | null)?.pageInfo?.totalResults;
+  const total = info === undefined || info === null ? 'tidak disebutkan' : String(info);
+  throw Error(`YOUTUBE_API_EMPTY — playlist ${playlistId} · totalResults ${total} · ${items.length} video terbaca`);
 }
 
 /** Dipakai syncYoutube: pilih jalur API bila kunci ada; kalau tidak, jelaskan alasannya. */

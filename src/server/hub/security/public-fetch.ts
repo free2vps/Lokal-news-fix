@@ -2,6 +2,7 @@ import dns from 'node:dns/promises';
 import https from 'node:https';
 import ipaddr from 'ipaddr.js';
 import robotsParser from 'robots-parser';
+import {trustedCa} from './extra-ca';
 /** Resolve all addresses, reject nonpublic, pin the actual TLS connection. Never downgrade TLS. */
 /**
  * Alasan `hops`: banyak situs mengalihkan alamat secara wajar — menambah garis miring
@@ -19,7 +20,10 @@ export async function publicFetch(raw:string,maxBytes=1500000,allowedHosts?:stri
  if(!answers.length||answers.some(a=>!ipaddr.isValid(a.address)||ipaddr.process(a.address).range()!=='unicast'))throw Error('NETWORK_BLOCKED');
  const answer=answers[0];
  return new Promise((resolve,reject)=>{
-  const req=https.get(u,{headers:{'User-Agent':'PortalContentHub/1.0 (+manual metadata sync)','Accept':'application/rss+xml,application/atom+xml,text/xml,text/html;q=0.5'},lookup:((_hostname:unknown,options:any,cb:any)=>options?.all?cb(null,[answer]):cb(null,answer.address,answer.family)) as any},res=>{
+  // `ca` berisi akar bawaan Node DITAMBAH satu sertifikat antara Sectigo yang tidak dikirim
+  // oleh sebagian server .go.id (mis. ntbprov.go.id). Verifikasi tetap penuh: domain, masa
+  // berlaku, dan rantai ke akar tepercaya masih diperiksa. Lihat extra-ca.ts.
+  const req=https.get(u,{ca:trustedCa(),headers:{'User-Agent':'PortalContentHub/1.0 (+manual metadata sync)','Accept':'application/rss+xml,application/atom+xml,text/xml,text/html;q=0.5'},lookup:((_hostname:unknown,options:any,cb:any)=>options?.all?cb(null,[answer]):cb(null,answer.address,answer.family)) as any},res=>{
    const code=Number(res.statusCode);
    if(code>=300&&code<400&&res.headers.location){
      res.destroy();

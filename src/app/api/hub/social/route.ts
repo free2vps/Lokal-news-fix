@@ -14,21 +14,35 @@ const MESSAGES:Record<string,string>={
 const msg=(e:unknown)=>MESSAGES[(e as Error)?.message||'']||'Permintaan media sosial gagal.';
 
 export async function GET(request:Request){
+  const url=new URL(request.url);
+  // Make.com menarik antrean dengan GET + bearer token. Tanpa cabang ini, permintaan
+  // Make jatuh ke pemeriksaan sesi dan ditolak 401 "masuk sebagai administrator".
+  if(url.searchParams.get('action')==='pull'&&request.headers.get('authorization'))return bearerPull(request,url);
   const a=await authenticatedDb(request);if(a.error)return a.error;
   try{return reply({...await socialStatus(a.db),policy:{...SOCIAL_POLICY}});}catch{return errorJson('Status antrean sosial belum dapat dibaca.',503);}
+}
+
+/** Jalur tanpa sesi: hanya untuk Make, diverifikasi dengan token yang bisa dicabut. */
+async function bearerPull(request:Request,url:URL){
+  try{
+    const db=getHubDb();
+    if(!writesAllowed())return errorJson('Penarikan media sosial dibatasi Preview webhub.',403);
+    if(!(await verifySocialToken(db,request.headers.get('authorization'))))return errorJson('Token tidak valid atau sudah dicabut.',401);
+    const cap=Number(url.searchParams.get('cap'))||undefined;
+    return reply(await claimBatch(db,{max:Number(url.searchParams.get('max'))||undefined,label:'make',cap}));
+  }catch(e){return errorJson(msg(e),409);}
 }
 export async function POST(request:Request){
   const url=new URL(request.url);const action=url.searchParams.get('action');
   const previewOk=writesAllowed();
 
   // Make.com: pull & ack memakai bearer token, tanpa sesi/CSRF.
-  if((action==='pull'||action==='ack')&&request.headers.get('authorization')){
+  if(action==='pull'&&request.headers.get('authorization'))return bearerPull(request,url);
+  if(action==='ack'&&request.headers.get('authorization')){
     try{
       const db=getHubDb();
       if(!previewOk)return errorJson('Penarikan media sosial dibatasi Preview webhub.',403);
       if(!(await verifySocialToken(db,request.headers.get('authorization'))))return errorJson('Token tidak valid atau sudah dicabut.',401);
-      const cap=Number(url.searchParams.get('cap'))||undefined;
-      if(action==='pull')return reply(await claimBatch(db,{max:Number(url.searchParams.get('max'))||undefined,label:'make',cap}));
       const body=await readJson(request);
       return reply(await acknowledge(db,body.results,'make'));
     }catch(e){return errorJson(msg(e),409);}

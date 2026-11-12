@@ -7,6 +7,8 @@ import {resolveDeliveryTarget} from '@/server/hub/domain/delivery-target';
 import {periksaRobots} from '@/lib/pemda/robots';
 import {sadurTautan} from '@/lib/pemda/sadur';
 import {slugify} from '@/lib/utils';
+import {detectRegion} from '@/config/regions';
+import {siapkanTerbit} from '@/lib/pemda/terbitkan';
 
 export const runtime='nodejs';export const dynamic='force-dynamic';export const maxDuration=60;
 const reply=(v:unknown,status=200)=>NextResponse.json(v,{status,headers:NO_STORE});
@@ -90,23 +92,36 @@ export async function POST(request:Request){
       if(baca||!baris)return errorJson('Draf tidak ditemukan.',404);
       if(baris.status==='disetujui')return errorJson('Draf ini sudah disetujui.',409);
 
-      const judul=String(b.judul).slice(0,200);
-      const slug=`${slugify(judul).slice(0,70)}-pemda-${createHash('sha256').update(String(baris.sumber_url)).digest('hex').slice(0,12)}`;
-      const tanda=(baris.tanggal_sumber?Date.parse(String(baris.tanggal_sumber)):NaN);
-      const terbit=Number.isFinite(tanda)?new Date(tanda).toISOString():new Date().toISOString();
-      const ringkasan=`${baris.ringkasan}\n\nSumber: ${baris.sumber_nama} — ${baris.sumber_url}\nRingkasan dari pengumuman resmi; isi lengkap ada di tautan sumber.`;
+      // Judul, slug, tanggal disiapkan di satu tempat yang teruji (src/lib/pemda/terbitkan.ts).
+      // Dulu judul diambil mentah dari `b.judul`; panel tidak mengirimnya sehingga judul dan
+      // slug tersimpan sebagai "undefined". Sekarang jatuh ke judul draf dan divalidasi.
+      const siap=siapkanTerbit(baris as Record<string,unknown> as Parameters<typeof siapkanTerbit>[0], b.judul);
+      if(!siap.ok)return errorJson(siap.pesan,400);
+      const {slug,judul,ringkasan,terbit,wilayah,pemda}=siap.nilai;
       const {data:artikel,error:tulis}=await supabase.from('articles').insert({
-        slug, source_url:baris.sumber_url, source_name:baris.sumber_nama,
-        original_title:judul, title:judul, ai_summary:ringkasan.slice(0,1000),
-        category:'Info Pemda', section:'berita', region:'NTB',
-        image_url:baris.gambar_url??null, image_credit:baris.gambar_url?baris.sumber_nama:null,
+        slug, source_url:siap.nilai.sumber_url, source_name:siap.nilai.sumber_nama,
+        original_title:judul, title:judul, ai_summary:ringkasan,
+        category:'Info Pemda', section:'berita', region:wilayah,
+        image_url:siap.nilai.gambar_url, image_credit:siap.nilai.gambar_url?siap.nilai.sumber_nama:null,
         published_at:terbit, jenis_sumber:'rilis',
       }).select('id,slug').maybeSingle();
-      if(tulis)return errorJson('Artikel gagal dibuat: '+tulis.message,409);
+      if(tulis){
+        if(tulis.code==='23505')return errorJson('Tautan ini sudah pernah diterbitkan di portal.',409);
+        return errorJson('Artikel gagal dibuat: '+tulis.message,409);
+      }
+
+      // Tautkan ke halaman pemda yang bersangkutan supaya rilis ini bisa ditemukan juga
+      // lewat menu Pemda (bukan hanya lewat arsip tanggal).
+      if(artikel?.id&&pemda.length){
+        await supabase.from('artikel_pemda').upsert(
+          pemda.map(pid=>({artikel_id:Number(artikel.id),pemda_id:pid,peran:'subjek'})),
+          {onConflict:'artikel_id,pemda_id',ignoreDuplicates:true},
+        ).then(()=>undefined,()=>undefined); // pemetaan tambahan: gagal tidak membatalkan terbit
+      }
 
       await supabase.from('pemda_draft')
         .update({status:'disetujui',slug_artikel:artikel?.slug??slug,diputuskan_at:new Date().toISOString()}).eq('id',id);
-      return reply({ok:true,slug:artikel?.slug??slug});
+      return reply({ok:true,slug:artikel?.slug??slug,wilayah,pemda});
     }
 
     return errorJson('Tindakan tidak dikenal.',400);

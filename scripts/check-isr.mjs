@@ -19,7 +19,7 @@ try { log = readFileSync(file, 'utf8'); } catch {
 }
 
 /** Route publik yang WAJIB static/ISR (○ = static, ● = ISR). */
-const MUST_BE_STATIC = [/^\/berita\/\[/, /^\/kategori\/\[/, /^\/wilayah\/\[/, /^\/topik\/\[/, /^\/hiburan$/, /^\/$/];
+const MUST_BE_STATIC = [/^\/berita\/\[/, /^\/kategori\/\[/, /^\/wilayah\/\[/, /^\/topik\/\[/, /^\/pemda\/\[/, /^\/hiburan$/, /^\/$/];
 
 const rows = log.split('\n')
   .map((line) => line.match(/^[├└┌│\s]*([○●ƒλ])\s+(\S+)/))
