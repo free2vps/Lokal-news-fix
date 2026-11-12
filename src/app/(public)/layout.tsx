@@ -7,6 +7,7 @@ import Header from '@/components/Header';
 import Footer from '@/components/Footer';
 import AdSlot from '@/components/AdSlot';
 import StickyAd from '@/components/StickyAd';
+import { SpeedInsights } from '@vercel/speed-insights/next';
 
 const serif = Newsreader({ subsets: ['latin'], variable: '--font-serif', display: 'swap' });
 const sans = Instrument_Sans({ subsets: ['latin'], variable: '--font-sans', display: 'swap' });
@@ -38,6 +39,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <Footer />
         <StickyAd />
         {adsense && <Script async src={`https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${adsense}`} crossOrigin="anonymous" strategy="afterInteractive" />}
+        <SpeedInsights />
       </body>
     </html>
   );
