@@ -4,7 +4,7 @@ import { SITE } from '@/config/site';
 import { getSocialLinks } from '@/lib/queries';
 import Logo from './Logo';
 
-const legal = [['/disclaimer', 'Disclaimer & Hak Cipta'], ['/pedoman-media', 'Pedoman Media & Hak Jawab'], ['/privacy-policy', 'Kebijakan Privasi']];
+const legal = [['/pemda', 'Pemda NTB'], ['/disclaimer', 'Disclaimer & Hak Cipta'], ['/pedoman-media', 'Pedoman Media & Hak Jawab'], ['/privacy-policy', 'Kebijakan Privasi']];
 
 /** Ikon digambar langsung (SVG sebaris) supaya tidak bergantung berkas/CDN luar. */
 const ICONS: Record<string, ReactElement> = {
