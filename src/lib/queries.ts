@@ -32,7 +32,14 @@ const editorialSnapshot=unstable_cache(async():Promise<Article[]>=>{
 const editorialArticles=requestCache(()=>editorialSnapshot());
 
 const latestPublishedCached = unstable_cache(async (limit:number, offset:number, category:string|null, section:string|null, sinceHours:number|null) => {
-  let q = supabase().from('articles').select(LIST).order('published_at', { ascending: false }).range(offset, offset + limit - 1);
+  // Urutan: rilis resmi pemda (dimasukkan pemilik sendiri lewat panel Hub) didahulukan,
+  // lalu sisanya menurut tanggal terbaru. Ini hanya mengubah URUTAN — tanggal terbit tidak
+  // pernah diubah, dan tanggal aslinya tetap tampil di kartu beritanya.
+  // 'rilis' > 'media' secara abjad, jadi descending menaruh rilis di atas.
+  let q = supabase().from('articles').select(LIST)
+    .order('jenis_sumber', { ascending: false })
+    .order('published_at', { ascending: false })
+    .range(offset, offset + limit - 1);
   if (category) q = q.eq('category', category);
   if (section) q = q.eq('section', section);
   // Batas kesegaran dilakukan di database, bukan setelah data diambil: kalau disaring belakangan,
@@ -41,6 +48,22 @@ const latestPublishedCached = unstable_cache(async (limit:number, offset:number,
   const { data } = await q;
   return (data ?? []) as Article[];
 }, ['latest-published'], { revalidate: 300, tags: [TAG_ARTICLES] });
+
+/**
+ * Rilis resmi pemda yang dimasukkan pemilik sendiri lewat panel Hub (jenis_sumber='rilis').
+ *
+ * Kenapa perlu dibaca terpisah: snapshot editorial hanya memuat 72 jam terakhir, jadi rilis
+ * yang usianya lebih dari itu tidak akan pernah muncul di daftar kategorinya walau sudah
+ * disetujui. Tanggal terbitnya TIDAK diubah — yang diubah hanya urutan tampilnya.
+ */
+const rilisPemdaCached = unstable_cache(async (category: string | null, section: string | null): Promise<Article[]> => {
+  let q = supabase().from('articles').select(LIST).eq('jenis_sumber', 'rilis')
+    .order('published_at', { ascending: false }).limit(6);
+  if (category) q = q.eq('category', category);
+  else if (section) q = q.eq('section', section);
+  const { data } = await q;
+  return (data ?? []) as Article[];
+}, ['rilis-pemda'], { revalidate: 300, tags: [TAG_ARTICLES] });
 
 async function latestPublished({limit=12,offset=0,category,section,sinceHours}:{limit?:number;offset?:number;category?:string;section?:string;sinceHours?:number}){
   return latestPublishedCached(limit, offset, category ?? null, section ?? null, sinceHours ?? null);
@@ -56,7 +79,12 @@ export async function getLatest({ limit = 12, offset = 0, category, section, sin
     // Isi sisa slot dari artikel yang benar-benar terbit di database situs, tanpa mengarang data.
     const need=Math.max(0,offset)+limit;
     const latest=needsLatestFill(rows,need)?await latestPublished({limit:need,category,section,sinceHours}).catch(()=>[]):[];
-    return mergeFeed(rows,latest,limit,offset);
+    // Rilis pemda didahulukan HANYA pada daftar yang tidak dibatasi umur (kategori/bagian).
+    // Beranda memakai `sinceHours`, jadi beranda tidak tersentuh oleh aturan ini.
+    const sorot=!sinceHours&&(category||section)
+      ? await rilisPemdaCached(category??null,section??null).catch(()=>[])
+      : [];
+    return mergeFeed([...sorot,...rows],latest,limit,offset);
   }
   return latestPublished({limit,offset,category,section,sinceHours});
 }
