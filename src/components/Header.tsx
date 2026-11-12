@@ -10,7 +10,10 @@ import TrendTicker from './TrendTicker';
 export default async function Header() {
   const trending = await getTrending();
   const today = new Date().toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Asia/Makassar' });
-  const tab = 'block whitespace-nowrap rounded-md px-3 py-2 text-muted hover:bg-line/60 hover:text-ink';
+  // Tinggi sasaran sentuh 44 px di ponsel: rekomendasi Apple HIG & Material (minimum 44–48 px).
+  // Sebelumnya py-2 menghasilkan ~36 px — terlalu kecil untuk ibu jari, dan ini menu yang
+  // paling sering disentuh. Di layar lebar tetap ringkas karena tidak perlu setinggi itu.
+  const tab = 'flex min-h-[44px] items-center whitespace-nowrap rounded-md px-3 text-muted hover:bg-line/60 hover:text-ink';
   return (
     <>
       <header>
@@ -30,8 +33,8 @@ export default async function Header() {
       <div className="sticky top-0 z-30 border-b border-line bg-bg/95 backdrop-blur">
         <nav aria-label="Menu utama" className="border-t border-line">
           <ul className="scrollbar-none mx-auto flex max-w-6xl gap-1 overflow-x-auto px-3 text-sm font-medium">
-            <li><Link href="/" className="block rounded-md px-3 py-2 text-brand">Beranda</Link></li>
-            <li><Link href="/hiburan" className="block rounded-md px-3 py-2 font-semibold text-pop hover:bg-pop/10">Hiburan</Link></li>
+            <li><Link href="/" className="flex min-h-[44px] items-center rounded-md px-3 text-brand">Beranda</Link></li>
+            <li><Link href="/hiburan" className="flex min-h-[44px] items-center rounded-md px-3 font-semibold text-pop hover:bg-pop/10">Hiburan</Link></li>
             <li><Link href="/#video" className={tab}>Video</Link></li>
             {CATEGORIES.map((c) => <li key={c}><Link href={`/kategori/${slugify(c)}`} className={tab}>{c}</Link></li>)}
           </ul>

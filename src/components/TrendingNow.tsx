@@ -27,7 +27,7 @@ export default function TrendingNow({ items }: { items: Trend[] }) {
       <ol>
         {list.map((t, i) => (
           <li key={t.id} className="border-t border-line/60 first:border-0">
-            <a href={trendHref(t)} target="_blank" rel="noopener nofollow" className="flex items-start gap-3 rounded-lg px-1 py-2.5 hover:bg-line/40">
+            <a href={trendHref(t)} target="_blank" rel="noopener nofollow" className="flex min-h-[44px] items-start gap-3 rounded-lg px-1 py-2.5 hover:bg-line/40">
               <span className="mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded bg-ink text-xs font-bold text-bg">{i + 1}</span>
               <span className="min-w-0">
                 <span className="line-clamp-2 break-words text-sm font-semibold leading-snug">{t.title}</span>
