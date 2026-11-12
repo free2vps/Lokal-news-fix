@@ -129,3 +129,17 @@ test('tombol "Perbarui manual" meneruskan kunci master dan langsung mengirim ke 
   assert.ok(!/syncYoutube\(a\.db\)/.test(isi), 'tidak boleh memanggil tanpa master');
   assert.ok(isi.includes('publishTrends'), 'setelah tarik manual, tren harus dikirim ke beranda');
 });
+
+test('API menjawab 200 tapi kosong: sebabnya dilaporkan, bukan diam-diam kosong', async () => {
+  // Gejala nyata 3 Nov 2026: laporan putaran menulis "✔ Playlist YouTube tidak mengembalikan video"
+  // padahal playlist berisi 12 video. Tanpa sebab, perbaikan hanya menebak.
+  const fetcher = (async () => new Response(JSON.stringify({pageInfo: {totalResults: 0}, items: []}), {status: 200})) as any;
+  await assert.rejects(() => fetchPlaylistViaApi('OLKOSONG1', KEY, fetcher), (e: Error) => {
+    assert.match(e.message, /YOUTUBE_API_EMPTY/);
+    assert.match(e.message, /OLKOSONG1/, 'playlist yang dibaca ikut disebut');
+    assert.match(e.message, /totalResults 0/, 'keterangan Google ikut dibawa');
+    return true;
+  });
+  const isi = readFileSync('src/server/hub/domain/auto-editor.ts', 'utf8');
+  assert.ok(/push\('sync_youtube', n > 0/.test(isi), '0 video harus ditandai gagal, bukan sehat');
+});

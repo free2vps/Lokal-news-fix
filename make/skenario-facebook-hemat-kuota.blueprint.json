@@ -1,14 +1,17 @@
 {
-  "name": "portal-hub — posting Facebook: selalu berita terbaru, maks 16/hari",
+  "name": "portal-hub — posting Facebook: berita terbaru, maks 16/hari",
   "flow": [
     {
       "id": 1,
       "module": "http:ActionSendData",
       "version": 3,
       "parameters": {
-        "handleErrors": false,
-        "useNewZLibCompression": false,
+        "handleErrors": true,
+        "useNewZLibDeCompress": true
+      },
+      "mapper": {
         "url": "https://lokal-news-fix-ujsf.vercel.app/api/hub/social?action=pull&max=2&cap=16",
+        "serializeUrl": false,
         "method": "get",
         "headers": [
           {
@@ -23,8 +26,8 @@
         "qs": [],
         "bodyType": "raw",
         "parseResponse": true,
-        "authUser": null,
-        "authPass": null,
+        "authUser": "",
+        "authPass": "",
         "timeout": "",
         "shareCookies": false,
         "ca": "",
@@ -34,48 +37,37 @@
         "gzip": true,
         "useMtls": false,
         "contentType": "application/json",
-        "serializeUrl": false,
-        "data": "",
-        "escapeData": false,
-        "outputIntoBundle": false
+        "followAllRedirects": false
       },
       "metadata": {
         "designer": {
           "x": 0,
           "y": 0
-        },
-        "restore": {},
-        "parameters": [
-          {
-            "name": "url",
-            "type": "url"
-          }
-        ]
+        }
       }
     },
     {
       "id": 2,
       "module": "builtin:BasicFeeder",
       "version": 1,
-      "parameters": {
-        "array": "{{1.body.items}}"
+      "parameters": {},
+      "mapper": {
+        "array": "{{1.data.items}}"
       },
       "metadata": {
         "designer": {
           "x": 300,
           "y": 0
         }
-      },
-      "next": [
-        3
-      ]
+      }
     },
     {
       "id": 3,
-      "module": "facebook-pages:createPost",
-      "version": 1,
-      "parameters": {
-        "page": "PILIH_HALAMAN_FACEBOOK_ANDA",
+      "module": "facebook-pages:CreatePost",
+      "version": 6,
+      "parameters": {},
+      "mapper": {
+        "page_id": "",
         "message": "{{2.title}}\n\n{{2.summary}}\n\nBaca selengkapnya: {{2.articleUrl}}",
         "link": "{{2.articleUrl}}"
       },
@@ -91,9 +83,12 @@
       "module": "http:ActionSendData",
       "version": 3,
       "parameters": {
-        "handleErrors": false,
-        "useNewZLibCompression": false,
+        "handleErrors": true,
+        "useNewZLibDeCompress": true
+      },
+      "mapper": {
         "url": "https://lokal-news-fix-ujsf.vercel.app/api/hub/social?action=ack",
+        "serializeUrl": false,
         "method": "post",
         "headers": [
           {
@@ -105,13 +100,22 @@
             "value": "application/json"
           }
         ],
+        "qs": [],
         "bodyType": "raw",
-        "contentType": "application/json",
-        "data": "{\"results\": [{\"deliveryKey\": \"{{2.deliveryKey}}\", \"ok\": true}]}",
         "parseResponse": true,
+        "authUser": "",
+        "authPass": "",
+        "timeout": "",
+        "shareCookies": false,
+        "ca": "",
         "rejectUnauthorized": true,
         "followRedirect": true,
-        "gzip": true
+        "useQuerystring": false,
+        "gzip": true,
+        "useMtls": false,
+        "contentType": "application/json",
+        "followAllRedirects": false,
+        "data": "{\"results\":[{\"deliveryKey\":\"{{2.deliveryKey}}\",\"ok\":true}]}"
       },
       "metadata": {
         "designer": {
@@ -140,6 +144,9 @@
         "interval": 180,
         "restart": false
       }
+    },
+    "designer": {
+      "orphans": []
     }
   }
 }
